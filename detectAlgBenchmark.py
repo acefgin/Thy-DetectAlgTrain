@@ -9,7 +9,23 @@ from matplotlib.ticker import (MultipleLocator, AutoMinorLocator)
 
 from datetime import datetime
 import pandas as pd
+import logging
+from pathlib import Path
 
+DATAPATH = Path('./SC2A2_training/')
+TESTLOGFILE = Path('SC2A2_testlog.csv')
+
+current_date = datetime.now().strftime("%Y%m%d")
+training_file = os.path.basename(DATAPATH).split('.')[0]
+log_filename = f'{current_date}_{training_file}_ADFtrainning.log'
+
+# Remove existing log file if it exists
+if os.path.exists(log_filename):
+    os.remove(log_filename)
+
+logging.basicConfig(filename=log_filename, level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger()
 
 def smooth(x,window_len=10,window='hanning'):
 
@@ -84,15 +100,12 @@ def labelSteps(datas, startPt = 30, rateTh = 0.3, width_LB = 15, avgRate_LB = 0.
                 while index <= stepR:
                     stepDiff = stepDiff + dataDiffs[index]
                     index += 1
-                #print(stepDiff, stepR, stepL)
                 avgRate = stepDiff / (stepR - stepL + 1)
-                #print(avgRate)
                 LAMPStepFL = avgRate >= avgRate_LB
             step = [stepL, stepR, LAMPStepFL]
             stepL = cnt + 1
             listOfSteps.append(step)
             continue
-    #print(listOfSteps)
     stepDiff = 0
     cp = 0
     maxDiff = 0
@@ -219,11 +232,9 @@ def idAudit(filename):
         
     
 def testsGrouping(filename):
-    df = pd.read_csv(filename)
+    df = pd.read_csv(Path(filename))
     posTests = {}
     negTests = set()
-    # row #, ch #
-    # outlierCurves = [[7, 2], [9, 4], [12, 2], [23, 4], [25, 4], [28, 3]]
     outlierCurves = []
     
     cnt = 0
@@ -239,11 +250,11 @@ def testsGrouping(filename):
             
     posTestNum = len(posTests)
     negTestNum = len(negTests)
-    print(f'POS total #: {posTestNum}, NEG total #: {negTestNum}')
+    logger.info(f'POS total #: {posTestNum}, NEG total #: {negTestNum}')
     return posTests, negTests, outlierCurves        
 
-def NTCMetric(negTests, dataPath = './SC2A2_training/'):
-    filenames = sorted(glob.glob(os.path.join(dataPath, '*.csv')))
+def NTCMetric(negTests, dataPath=Path('./SC2A2_training/')):
+    filenames = sorted(dataPath.glob('*.csv'))
     invalidCnt = 0
     trueNegCnt = 0
     falsePosCnt = 0
@@ -264,8 +275,8 @@ def NTCMetric(negTests, dataPath = './SC2A2_training/'):
 
     return negCurves, pcCurves
                 
-def POSMetric(posTests, paras = [30, 0.3, 15, 0.8] , thresholdLt = [40, 40, 40, 40, 40], dataPath = './SC2A2_training/'):
-    filenames = sorted(glob.glob(os.path.join(dataPath, '*.csv')))
+def POSMetric(posTests, paras=[30, 0.3, 15, 0.8], thresholdLt=[40, 40, 40, 40, 40], dataPath=Path('./SC2A2_training/')):
+    filenames = sorted(dataPath.glob('*.csv'))
 
     posCurvesL = []
     posCurvesM = []
@@ -341,7 +352,7 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras = [75, 0.3, 15, 0.8, 40])
                 fpCnt += 1
                 falseDetectionList.append(['FP', testId, ch, signal])
             
-    print(f'rateTh = {rateTh}, width_LB = {width_LB}, avgRate_LB = {avgRate_LB}, threshold = {threshold}')
+    logger.debug(f'rateTh = {rateTh}, width_LB = {width_LB}, avgRate_LB = {avgRate_LB}, threshold = {threshold}')
     return fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, falseDetectionList
 
 
@@ -407,7 +418,7 @@ def getMetric():
     plt.show()
 
 
-def paraSweep( paraName, range, step, testlogFile = 'SC2A2_testlog.csv', dataPath = './SC2A2_training/'):
+def paraSweep( paraName, range, step, testlogFile = Path('SC2A2_testlog.csv'), dataPath = Path('./SC2A2_training/')):
     # idAudit(testlogFile)
     posTests, negTests, outliers = testsGrouping(testlogFile)
     negCurves, pcNTC = NTCMetric(negTests, dataPath)
@@ -443,7 +454,7 @@ def paraSweep( paraName, range, step, testlogFile = 'SC2A2_testlog.csv', dataPat
         print(df)
 
 def getFalseDetectionList(paras = [75, 0.3, 15, 0.8, 40], plotType = 'FP'):
-    testlogFile = 'SC2A2_testlog.csv'
+    testlogFile = Path('SC2A2_testlog.csv')
     # idAudit(testlogFile)
     posTests, negTests, outliers = testsGrouping(testlogFile)
     negCurves, pcNTC = NTCMetric(negTests)
@@ -492,8 +503,8 @@ def plotFalseDetectionCurves(fdList, plotType, paras):
 if __name__ == '__main__':
 
     # Testlog filename and data path
-    TESTLOGFILE = 'PD_testlog.csv'
-    DATAPATH = './PD_training/'
+    TESTLOGFILE = Path('PD_testlog.csv')
+    DATAPATH = Path('./PD_training/')
 
     msg = "Please specify the parameter (startPt, rateTh, width_LB, avgRate_LB, threshold) to sweep"
 
@@ -518,4 +529,7 @@ if __name__ == '__main__':
     
     # paraSweep('threshold', [40, 110], 10)
     # getFalseDetectionList([75, 0.5, 15, 0.9, 80], 'IV')
+
+
+
 
