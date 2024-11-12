@@ -6,8 +6,11 @@
 # 
 output/
 data/
+build/
 NSCPI_training/
-SC2As_training/
+SC2A2_training/
+PD_training/
+SC2A2/
 
 # User-specific files
 *.rsuser

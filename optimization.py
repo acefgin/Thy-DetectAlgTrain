@@ -1,15 +1,17 @@
-import numpy as np
-from scipy.optimize import minimize, minimize_scalar
-from detectAlgBenchmark import curvesMetric, testsGrouping, NTCMetric, POSMetric
-from detectAlgBenchmark import DATAPATH, TESTLOGFILE
+from scipy.optimize import minimize
+from detectAlgBenchmark import curvesMetric, testsGrouping, NTCMetric, POSMetric, plotFalseDetectionCurves
+from detectAlgBenchmark import DATAPATH, TESTLOGFILE, argBounds, PlotFalse
 import logging
-from pathlib import Path
 
 # Configure logging
 logger = logging.getLogger()
+logger.info("======== Start ADF parameters optimization ========")
 
 # Import and group tests
 posTests, negTests, outliers = testsGrouping(TESTLOGFILE)
+
+# Log parameters bounds
+logger.info(f"### startPt|rateTh|width_LB|avgRate_LB|threshold: {argBounds} ###")
 
 def objective_function_ivCnt(params):
 
@@ -42,26 +44,23 @@ def objective_function_fp_fn(params):
     # Calculate metrics using curvesMetric function
     fpCnt, fnHCnt, fnMCnt, fnLCnt, _, _ = curvesMetric(posCurves, negCurves, pcCurves, params)
     
-    # Calculate total error rate as optimization objective
-    # total_curves = len(negCurves) + len(posCurvesL) + len(posCurvesM) + len(posCurvesH) + len(pcCurves)
-    # error_rate = (fpCnt + fnHCnt + fnMCnt + fnLCnt) / total_curves
-    flase_curves_cnt = (fpCnt + fnHCnt + fnMCnt + fnLCnt)
+    # Calculate total false curves count as optimization objective
+    false_curves_cnt = (fpCnt + fnHCnt + fnMCnt + fnLCnt)
     
-    return flase_curves_cnt
+    return false_curves_cnt
 
 # Define parameter bounds
-bounds = [(75, 75),    # startPt
-          (0.15, 1),      # rateTh
-          (10, 40),     # width_LB
-          (0.5, 5),      # avgRate_LB
-          (15, 200)]    # threshold
+bounds_str = argBounds.split('|')
+bounds = []
+for bound_str in bounds_str:
+    min_val, max_val = map(float, bound_str.split(','))
+    bounds.append((min_val, max_val))
 
 # Initial guess
 initial_guess = [75, 0.5, 15, 0.5, 15]
 
 # Optimize using scipy.optimize.minimize
 # Try different optimization methods
-# methods = ['Nelder-Mead', 'Powell', 'CG', 'BFGS', 'L-BFGS-B', 'TNC', 'COBYLA', 'SLSQP']
 methods = ['Nelder-Mead', 'Powell', 'L-BFGS-B', 'TNC', 'COBYLA', 'SLSQP']
 
 # First optimize objective_function_fp_fn
@@ -69,6 +68,7 @@ best_result_fp_fn = None
 best_error_fp_fn = float('inf')
 best_method_fp_fn = None
 
+print("Training ADF parameters... Please wait...")
 for method in methods:
     try:
         logger.info(f"Trying method for fp_fn: {method}")
@@ -138,3 +138,45 @@ logger.info(f"avgRate_LB: {result_ivCnt.x[2]:.2f}")
 logger.info(f"threshold: {result_ivCnt.x[3]:.2f}")
 logger.info(f"Minimum invalid PC count: {result_ivCnt.fun:.4f}")
 logger.info("======== End of PC Optimization Results ========")
+
+def log_false_detections(params, method_name, error_type="FP_FN"):
+    negCurves, pcNTC = NTCMetric(negTests, DATAPATH)
+    posCurvesL, posCurvesM, posCurvesH, pcPOS = POSMetric(posTests, DATAPATH)
+    posCurves = [posCurvesL, posCurvesM, posCurvesH]
+    pcCurves = pcNTC + pcPOS
+    
+    _, _, _, _, _, fdList = curvesMetric(posCurves, negCurves, pcCurves, params)
+    
+    logger.info(f"====== False Detection Details for {error_type} - Method: {method_name} ======")
+    logger.info(f"Parameters: startPt={params[0]:.2f}, rateTh={params[1]:.2f}, "
+               f"width_LB={int(params[2])}, avgRate_LB={params[3]:.2f}, threshold={params[4]:.2f}")
+    cnt = 0
+    for fd in fdList:
+        if error_type == "FP_FN" and fd[0] == 'IV':
+            continue
+        if error_type == "PC" and fd[0] != 'IV':
+            continue
+        logger.info(f"Type: {fd[0]}, TestID: {fd[1]}, Channel: {fd[2]}")
+        cnt += 1
+    logger.info(f"Total false detections: {cnt}")
+    logger.info("=" * 60)
+
+    if PlotFalse:
+        if error_type == "FP_FN":
+            plotFalseDetectionCurves(fdList, {'FP', 'FNL', 'FNM', 'FNH'}, params)
+        elif error_type == "PC":
+            plotFalseDetectionCurves(fdList, {'IV'}, params)
+
+# After finding best_result_fp_fn
+if best_result_fp_fn:
+    log_false_detections(best_result_fp_fn.x, best_method_fp_fn, "FP_FN")
+
+# After finding best_result_ivCnt
+if best_result_ivCnt:
+    full_params = [result_fp_fn.x[0], result_ivCnt.x[0], int(result_ivCnt.x[1]), 
+                   result_ivCnt.x[2], result_ivCnt.x[3]]
+    log_false_detections(full_params, best_method_ivCnt, "PC")
+
+print("Task completed! Please check the log file for details.")
+input("Press Enter to exit...")
+

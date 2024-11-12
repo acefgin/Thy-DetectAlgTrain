@@ -12,12 +12,33 @@ import pandas as pd
 import logging
 from pathlib import Path
 
-DATAPATH = Path('./SC2A2_training/')
-TESTLOGFILE = Path('SC2A2_testlog.csv')
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='ADF parameter optimization')
+parser.add_argument('-d', '--data', type=str, default='./ADFtraining/',
+                    help='Path to training data directory')
+parser.add_argument('-t', '--testlog', type=str, default='testlog.csv',
+                    help='Path to test log file')
+parser.add_argument('-b', '--bounds', type=str, default='75,75|0.15,1|10,40|0.5,5|15,200',
+                    help='Parameter bounds in format "startPt|rateTh|width_LB|avgRate_LB|threshold" where each is "min,max"')
+parser.add_argument('-p', '--plot', action='store_true',
+                    help='Flag to enable plotting false detection curves')
+parser.add_argument('-v', '--verbose', action='store_true',
+                    help='Enable debug level logging')
+
+
+args = parser.parse_args()
+
+PlotFalse = args.plot
+argBounds = args.bounds
+
+DATAPATH = Path(args.data)
+TESTLOGFILE = Path(args.testlog)
 
 current_date = datetime.now().strftime("%Y%m%d")
 training_file = os.path.basename(DATAPATH).split('.')[0]
-log_filename = f'{current_date}_{training_file}_ADFtrainning.log'
+log_filename = f'{current_date}_{training_file}.log'
+
+
 
 # Remove existing log file if it exists
 if os.path.exists(log_filename):
@@ -26,6 +47,9 @@ if os.path.exists(log_filename):
 logging.basicConfig(filename=log_filename, level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger()
+# Set logger level to debug
+if args.verbose:
+    logger.setLevel(logging.DEBUG)
 
 def smooth(x,window_len=10,window='hanning'):
 
@@ -152,6 +176,8 @@ def readRunCsv(filename):
         headerDist = {}
 
         for row in rows:
+            # handle empty cells in row
+            row = [cell for cell in row if cell.strip()]
             if idx == 0:
                 for n, header in enumerate(row):
                     headerDist[header] = n
@@ -232,7 +258,7 @@ def idAudit(filename):
         
     
 def testsGrouping(filename):
-    df = pd.read_csv(Path(filename))
+    df = pd.read_csv(filename)
     posTests = {}
     negTests = set()
     outlierCurves = []
@@ -253,7 +279,7 @@ def testsGrouping(filename):
     logger.info(f'POS total #: {posTestNum}, NEG total #: {negTestNum}')
     return posTests, negTests, outlierCurves        
 
-def NTCMetric(negTests, dataPath=Path('./SC2A2_training/')):
+def NTCMetric(negTests, dataPath):
     filenames = sorted(dataPath.glob('*.csv'))
     invalidCnt = 0
     trueNegCnt = 0
@@ -267,6 +293,10 @@ def NTCMetric(negTests, dataPath=Path('./SC2A2_training/')):
             continue
         idInfo, overallRlt, signalList = readRunCsv(filename)
         
+        if not signalList or len(signalList) < 5:
+            logger.warning(f"File {filename} has incomplete or empty signal data")
+            continue
+            
         pcCurves.append([testId, 'ch1', signalList[0]])
         negCurves.append([testId, 'ch2', signalList[1]])
         negCurves.append([testId, 'ch3', signalList[2]])
@@ -275,7 +305,7 @@ def NTCMetric(negTests, dataPath=Path('./SC2A2_training/')):
 
     return negCurves, pcCurves
                 
-def POSMetric(posTests, paras=[30, 0.3, 15, 0.8], thresholdLt=[40, 40, 40, 40, 40], dataPath=Path('./SC2A2_training/')):
+def POSMetric(posTests, dataPath):
     filenames = sorted(dataPath.glob('*.csv'))
 
     posCurvesL = []
@@ -288,7 +318,7 @@ def POSMetric(posTests, paras=[30, 0.3, 15, 0.8], thresholdLt=[40, 40, 40, 40, 4
         testId = os.path.basename(filename).split('.csv')[0]
         if testId not in posTests:
             continue
-        idInfo, overallRlt, signalList = readRunCsv(filename)
+        _, _, signalList = readRunCsv(filename)
         
         pcCurves.append([testId, 'ch1', signalList[0]])
         if posTests[testId] == 1:
@@ -319,7 +349,7 @@ def getInvalTestsCsv(invalidTestLt):
         
 def curvesMetric(posCurves, negCurves, pcCurves, paras = [75, 0.3, 15, 0.8, 40]):
     
-    startPt, rateTh, width_LB, avgRate_LB, threshold = paras #rateTh, width_LB, avgRate_LB, threshold
+    startPt, rateTh, width_LB, avgRate_LB, threshold = paras
     ivCnt, fpCnt, fnLCnt, fnMCnt, fnHCnt = 0, 0, 0, 0, 0
     pcThreshold = 40
     
@@ -354,69 +384,6 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras = [75, 0.3, 15, 0.8, 40])
             
     logger.debug(f'rateTh = {rateTh}, width_LB = {width_LB}, avgRate_LB = {avgRate_LB}, threshold = {threshold}')
     return fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, falseDetectionList
-
-
-def getMetric():
-
-    # dataPath = './data/'
-    dataPath = './NCSPI_data/'
-    filenames = sorted(glob.glob(os.path.join(dataPath, '*.csv')))
-    # testLog = readTestlog('./S2R_testlog.csv')
-    # print(testLog)
-    posTests, negTests, outliers = testsGrouping(testlogFile)
-    
-
-    idInfo, overallRlt, signalList = "", "", []
-    invalidCnt = 0
-    truePosCnt = 0
-    falsePosCnt = 0
-    trueNegCnt = 0
-    falseNegCnt = 0
-
-    for filename in filenames:
-        idInfo, overallRlt, signalList = readRunCsv(filename)
-        sampleGroup = testLog[os.path.splitext(os.path.basename(filename))[0]]
-
-        groundTruth = False
-        if sampleGroup != 'Negative':
-            groundTruth = True
-
-        startPt, rateTh, width_LB, avgRate_LB = [30, 0.3, 15, 0.8] #rateTh, width_LB, avgRate_LB
-        thresholdList = [40, 40, 40, 40, 40]
-        rltList = [False, False, False, False, False]
-
-        if len(signalList) != 0:
-
-            for i in range(5):
-                _, diff, cp, stepWidth, avgRate, maxDiff= labelSteps(signalList[i], startPt, rateTh, width_LB, avgRate_LB)
-                rltList[i] = (diff >= thresholdList[i])
-        if rltList[0] == False:
-            invalidCnt += 1
-        else:
-            if rltList[1] or rltList[2] or rltList[3] or rltList[4] == True:
-                if groundTruth: 
-                    truePosCnt += 1
-                else:
-                    falsePosCnt += 1
-            else:
-                if groundTruth: 
-                    falseNegCnt += 1
-                else:
-                    trueNegCnt += 1
-    cf_matrix = [[truePosCnt, falsePosCnt], [falseNegCnt, trueNegCnt]]
-    ax = sns.heatmap(cf_matrix, annot=True, cmap='Blues')
-
-    ax.set_title('Seaborn Confusion Matrix with labels\n\n');
-    ax.set_xlabel('\nPredicted Values')
-    ax.set_ylabel('Actual Values ');
-
-    ## Ticket labels - List must be in alphabetical order
-    ax.xaxis.set_ticklabels(['True','False'])
-    ax.yaxis.set_ticklabels(['True','False'])
-
-    ## Display the visualization of the Confusion Matrix.
-    plt.show()
-
 
 def paraSweep( paraName, range, step, testlogFile = Path('SC2A2_testlog.csv'), dataPath = Path('./SC2A2_training/')):
     # idAudit(testlogFile)
@@ -454,7 +421,7 @@ def paraSweep( paraName, range, step, testlogFile = Path('SC2A2_testlog.csv'), d
         print(df)
 
 def getFalseDetectionList(paras = [75, 0.3, 15, 0.8, 40], plotType = 'FP'):
-    testlogFile = Path('SC2A2_testlog.csv')
+    testlogFile = 'SC2A2_testlog.csv'
     # idAudit(testlogFile)
     posTests, negTests, outliers = testsGrouping(testlogFile)
     negCurves, pcNTC = NTCMetric(negTests)
@@ -471,7 +438,7 @@ def getFalseDetectionList(paras = [75, 0.3, 15, 0.8, 40], plotType = 'FP'):
 
 def plotFalseDetectionCurves(fdList, plotType, paras):
     rate, width, avgRate, th = paras[1], paras[2], paras[3], paras[4]
-    plt.style.use('seaborn-bright')
+    plt.style.use('seaborn')
 
     plt.rc('axes', linewidth=2)
     font = {'weight' : 'bold',
@@ -485,7 +452,7 @@ def plotFalseDetectionCurves(fdList, plotType, paras):
     
 
     for df in fdList:
-        if plotType != df[0]:
+        if df[0] not in plotType:
             continue
         testId = df[1]
         ch = df[2]
@@ -529,6 +496,8 @@ if __name__ == '__main__':
     
     # paraSweep('threshold', [40, 110], 10)
     # getFalseDetectionList([75, 0.5, 15, 0.9, 80], 'IV')
+
+
 
 
 
