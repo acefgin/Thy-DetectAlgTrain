@@ -185,38 +185,56 @@ def readRunCsv(filename):
                 idInfo.append([row[0], row[headerDist["Barcode"]]])
                 OverallResult = row[headerDist["OverallResult"]]
             if idx == 8:
-                x = row[7:]
+                # find the index of that has 'Time'
+                timeIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Time'), None)
+                if timeIdx is not None:
+                    x = row[timeIdx + 4:]
                 x = [float(i)/1000/60 - 5 for i in x]
             if idx == 11:
-                ChResult.append(row[5])
-                y1 = row[7:]
-                rlt.append(row[6])
-                y1 = np.array([float(i) for i in y1])
-                if len(y1) >= 9: signalList.append(smooth(y1))
+                # find the index of that has 'Target'   
+                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
+                if targetIdx is not None:
+                    ChResult.append(row[targetIdx+1])
+                    y1 = row[targetIdx + 4:]
+                    rlt.append(row[targetIdx+2])
+                    y1 = np.array([float(i) for i in y1])
+                    if len(y1) >= 9: signalList.append(smooth(y1))
             if idx == 12:
-                ChResult.append(row[5])
-                y2 = row[7:]
-                rlt.append(row[6])
-                y2 = np.array([float(i) for i in y2])
-                if len(y2) >= 9: signalList.append(smooth(y2))
+                # find the index of that has 'Target'   
+                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
+                if targetIdx is not None:
+                    ChResult.append(row[targetIdx+1])
+                    y2 = row[targetIdx + 4:]
+                    rlt.append(row[targetIdx+2])
+                    y2 = np.array([float(i) for i in y2])
+                    if len(y2) >= 9: signalList.append(smooth(y2))
             if idx == 13:
-                ChResult.append(row[5])
-                y3 = row[7:]
-                rlt.append(row[6])
-                y3 = np.array([float(i) for i in y3])
-                if len(y3) >= 9: signalList.append(smooth(y3))
+                # find the index of that has 'Target'   
+                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
+                if targetIdx is not None:
+                    ChResult.append(row[targetIdx+1])
+                    y3 = row[targetIdx + 4:]
+                    rlt.append(row[targetIdx+2])
+                    y3 = np.array([float(i) for i in y3])
+                    if len(y3) >= 9: signalList.append(smooth(y3))
             if idx == 14:
-                ChResult.append(row[5])
-                y4 = row[7:]
-                rlt.append(row[6])
-                y4 = np.array([float(i) for i in y4])
-                if len(y4) >= 9: signalList.append(smooth(y4))
+                # find the index of that has 'Target'   
+                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
+                if targetIdx is not None:
+                    ChResult.append(row[targetIdx+1])
+                    y4 = row[targetIdx + 4:]
+                    rlt.append(row[targetIdx+2])
+                    y4 = np.array([float(i) for i in y4])
+                    if len(y4) >= 9: signalList.append(smooth(y4))
             if idx == 15:
-                ChResult.append(row[5])
-                y5 = row[7:]
-                rlt.append(row[6])
-                y5 = np.array([float(i) for i in y5])
-                if len(y5) >= 9: signalList.append(smooth(y5))
+                # find the index of that has 'Target'   
+                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
+                if targetIdx is not None:
+                    ChResult.append(row[targetIdx+1])
+                    y5 = row[targetIdx + 4:]
+                    rlt.append(row[targetIdx+2])
+                    y5 = np.array([float(i) for i in y5])
+                    if len(y5) >= 9: signalList.append(smooth(y5))
 
             idx += 1
 
