@@ -240,7 +240,6 @@ def readRunCsv(filename):
 
     return idInfo, OverallResult, signalList
 
-
 def readTestlog(filename):
     
     testLog = {}
@@ -255,6 +254,7 @@ def readTestlog(filename):
             inputGroup = row[11]
             testLog[row[0]] = inputGroup
     return testLog
+
 def idAudit(filename):
     df = pd.read_csv(filename)
     idMapping = {}
@@ -283,13 +283,13 @@ def testsGrouping(filename):
     
     cnt = 0
     for idx, row in df.iterrows():
-        if 'PC' in row['Used for:']:
-            levelGp = row['Input [C]']
-            id = row['Test ID#']
+        if 'Positive' in row['Sample Type']:
+            levelGp = row['Sample Concentration']
+            id = row['Run UID']
             posTests[id] = levelGp
             cnt += 1
-        elif 'NTC' in row['Used for:']:
-            negTests.add(row['Test ID#'])
+        elif 'Negative' in row['Sample Type']:
+            negTests.add(row['Run UID'])
             cnt += 1
             
     posTestNum = len(posTests)
