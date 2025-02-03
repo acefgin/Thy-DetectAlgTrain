@@ -1,4 +1,4 @@
-Test ID#,Cartridge ID,Used for:,Sample ID on Device,Input,Input group,Input [C],Result,Expected Result,Result Comment,Result Tag
-NABITB001_1,SC2A2001,NTC,NTC_S_1,Negative - dH2O,Negative,0,,,,
-NABITB001_2,SC2A2002,PC-Medium,PC_SC2A2_1_49CS,Positive - GIH2O5K,Positive,5,,,,
-NABITB001_3,SC2A2003,PC-Medium,PC_SC2A2_2_16CS,Positive - GIH2O5K,Positive,5,,,,
+Test ID#,Cartridge ID,Used for:,Sample ID on Device,Input,Input group,Input [C],Result,Expected Result,Result Comment,Result Tag,Run UID
+NABITB001_1,SC2A2001,NTC,NTC_S_1,Negative - dH2O,Negative,0,,,,,
+NABITB001_2,SC2A2002,PC-Medium,PC_SC2A2_1_49CS,Positive - GIH2O5K,Positive,5,,,,,010725_NB2_v4_71_CS_MS2_NTC.csv
+NABITB001_3,SC2A2003,PC-Medium,PC_SC2A2_2_16CS,Positive - GIH2O5K,Positive,5,,,,,010725_NB2_v4_71_HS_A2_NTC.csv

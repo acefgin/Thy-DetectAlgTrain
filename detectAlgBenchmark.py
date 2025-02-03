@@ -156,152 +156,118 @@ def labelSteps(datas, startPt = 30, rateTh = 0.3, width_LB = 15, avgRate_LB = 0.
 
 
 def readRunCsv(filename):
+    """Read and parse a run CSV file to extract test information and signal data.
+    
+    Args:
+        filename (str): Path to the CSV file to read
+        
+    Returns:
+        tuple: Contains:
+            - idInfo (list): Test identification information [test_id, barcode]
+            - OverallResult (str): Overall test result
+            - signalList (list): List of smoothed signal data for each channel
+    """
+    # Initialize data structures
+    x = []  # Time points
+    signalList = []  # Processed signals
+    channel_signals = [[] for _ in range(5)]  # Raw signals for each channel
+    test_info = []  # Test identification info
+    channel_results = []  # Results by channel
+    overall_result = ""
 
-    x = []
-    signalList = []
-    y1 = []
-    y2 = []
-    y3 = []
-    y4 = []
-    y5 = []
-
-    rlt = []
-    idInfo = []
-    ChResult = []
-    OverallResult = ""
-
-    with open(filename,'r') as csvfile:
+    with open(filename, 'r') as csvfile:
         rows = csv.reader(csvfile, delimiter=',')
-        idx = 0
-        headerDist = {}
+        row_idx = 0
+        header_positions = {}
 
         for row in rows:
-            # handle empty cells in row
+            # Remove empty cells
             row = [cell for cell in row if cell.strip()]
-            if idx == 0:
-                for n, header in enumerate(row):
-                    headerDist[header] = n
-            if idx == 1:
-                idInfo.append([row[0], row[headerDist["Barcode"]]])
-                OverallResult = row[headerDist["OverallResult"]]
-            if idx == 8:
-                # find the index of that has 'Time'
-                timeIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Time'), None)
-                if timeIdx is not None:
-                    x = row[timeIdx + 4:]
-                x = [float(i)/1000/60 - 5 for i in x]
-            if idx == 11:
-                # find the index of that has 'Target'   
-                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
-                if targetIdx is not None:
-                    ChResult.append(row[targetIdx+1])
-                    y1 = row[targetIdx + 4:]
-                    rlt.append(row[targetIdx+2])
-                    y1 = np.array([float(i) for i in y1])
-                    if len(y1) >= 9: signalList.append(smooth(y1))
-            if idx == 12:
-                # find the index of that has 'Target'   
-                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
-                if targetIdx is not None:
-                    ChResult.append(row[targetIdx+1])
-                    y2 = row[targetIdx + 4:]
-                    rlt.append(row[targetIdx+2])
-                    y2 = np.array([float(i) for i in y2])
-                    if len(y2) >= 9: signalList.append(smooth(y2))
-            if idx == 13:
-                # find the index of that has 'Target'   
-                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
-                if targetIdx is not None:
-                    ChResult.append(row[targetIdx+1])
-                    y3 = row[targetIdx + 4:]
-                    rlt.append(row[targetIdx+2])
-                    y3 = np.array([float(i) for i in y3])
-                    if len(y3) >= 9: signalList.append(smooth(y3))
-            if idx == 14:
-                # find the index of that has 'Target'   
-                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
-                if targetIdx is not None:
-                    ChResult.append(row[targetIdx+1])
-                    y4 = row[targetIdx + 4:]
-                    rlt.append(row[targetIdx+2])
-                    y4 = np.array([float(i) for i in y4])
-                    if len(y4) >= 9: signalList.append(smooth(y4))
-            if idx == 15:
-                # find the index of that has 'Target'   
-                targetIdx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
-                if targetIdx is not None:
-                    ChResult.append(row[targetIdx+1])
-                    y5 = row[targetIdx + 4:]
-                    rlt.append(row[targetIdx+2])
-                    y5 = np.array([float(i) for i in y5])
-                    if len(y5) >= 9: signalList.append(smooth(y5))
-
-            idx += 1
-
-    return idInfo, OverallResult, signalList
-
-def readTestlog(filename):
-    
-    testLog = {}
-    with open(filename,'r') as csvfile:
-        items = csv.reader(csvfile, delimiter=',')
-        idx = 0
-        for row in items:
-            if idx == 0:
-                headers = row
-                idx += 1
-                continue
-            inputGroup = row[11]
-            testLog[row[0]] = inputGroup
-    return testLog
-
-def idAudit(filename):
-    df = pd.read_csv(filename)
-    idMapping = {}
-    
-    for idx, row in df.iterrows():
-        idMapping[row['Test ID#']] = row['Sample ID on Device']
-    
-    dataPath = './NSCPI_training/'
-    filenames = sorted(glob.glob(os.path.join(dataPath, '*.csv')))
-    
-    errLt = []
-    for filename in filenames:
-        testId = os.path.basename(filename).split('.csv')[0]
-        idInfo, overallRlt, signalList = readRunCsv(filename)
-        sampleId = idInfo[0][0]
-        
-        if idMapping[testId] != sampleId:
-            print(testId + ' should be ' + sampleId + ' not ' + idMapping[testId])
-        
-    
-def testsGrouping(filename):
-    df = pd.read_csv(filename)
-    posTests = {}
-    negTests = set()
-    outlierCurves = []
-    
-    cnt = 0
-    for idx, row in df.iterrows():
-        if 'Positive' in row['Sample Type']:
-            levelGp = row['Sample Concentration']
-            id = row['Run UID']
-            posTests[id] = levelGp
-            cnt += 1
-        elif 'Negative' in row['Sample Type']:
-            negTests.add(row['Run UID'])
-            cnt += 1
             
-    posTestNum = len(posTests)
-    negTestNum = len(negTests)
-    logger.info(f'POS total #: {posTestNum}, NEG total #: {negTestNum}')
-    return posTests, negTests, outlierCurves        
+            # Process header row
+            if row_idx == 0:
+                header_positions = {header: idx for idx, header in enumerate(row)}
+            
+            # Process test info row
+            elif row_idx == 1:
+                barcode = row[header_positions["Barcode"]] if "Barcode" in header_positions and header_positions["Barcode"] < len(row) else ""
+                overall_result = row[header_positions["OverallResult"]] if "OverallResult" in header_positions and header_positions["OverallResult"] < len(row) else ""
+                test_info.append([row[0], barcode])
+            
+            # Process time points row
+            elif row_idx == 8:
+                time_idx = next((i for i, cell in enumerate(row) if cell.strip() == 'Time'), None)
+                if time_idx is not None:
+                    x = row[time_idx + 4:]
+                x = [float(i)/1000/60 - 5 for i in x]  # Convert to minutes
+            
+            # Process channel data rows (11-15)
+            elif 11 <= row_idx <= 15:
+                channel_idx = row_idx - 11
+                target_idx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
+                
+                if target_idx is not None:
+                    channel_results.append(row[target_idx + 1])
+                    signal_data = row[target_idx + 4:]
+                    channel_signals[channel_idx] = np.array([float(i) for i in signal_data])
+                    
+                    if len(channel_signals[channel_idx]) >= 9:
+                        signalList.append(smooth(channel_signals[channel_idx]))
+            
+            row_idx += 1
+
+    return test_info, overall_result, signalList
+    
+def testsGrouping(testlogFile):
+    """Group tests based on sample type and layout information"""
+    df = pd.read_csv(testlogFile)
+    posTests = {}
+    negTests = {}
+    outliers = []
+    
+    # Default layout when not specified
+    DEFAULT_LAYOUT = ['PC', 'Target', 'Target', 'Target', 'Target']
+    
+    for _, row in df.iterrows():
+        test_id = row['Run UID']
+        sample_type = row['Sample Type']
+        
+        # Handle missing Layout column or empty layout
+        try:
+            if pd.isna(row.get('Layout')) or not row['Layout'].strip():
+                layout = DEFAULT_LAYOUT
+            else:
+                layout = [item.strip() for item in row['Layout'].split(',')]
+                # If layout doesn't have exactly 5 items, use default
+                if len(layout) != 5:
+                    layout = DEFAULT_LAYOUT
+        except (AttributeError, KeyError):
+            # Layout column doesn't exist
+            layout = DEFAULT_LAYOUT
+            
+        # Store test info with layout
+        if sample_type == 'Positive':
+            posTests[test_id] = {
+                'conc': row['Sample Concentration'],
+                'layout': layout
+            }
+        elif sample_type == 'Negative':
+            negTests[test_id] = {
+                'layout': layout
+            }
+        else:
+            outliers.append(test_id)
+            
+    # Log the test counts
+    logger.info(f'POS total #: {len(posTests)}, NEG total #: {len(negTests)}')
+    if outliers:
+        logger.warning(f'Found {len(outliers)} outlier tests: {outliers}')
+            
+    return posTests, negTests, outliers
 
 def NTCMetric(negTests, dataPath):
+    """Process negative control test data considering layout information"""
     filenames = sorted(dataPath.glob('*.csv'))
-    invalidCnt = 0
-    trueNegCnt = 0
-    falsePosCnt = 0
     negCurves = []
     pcCurves = []
     
@@ -309,52 +275,65 @@ def NTCMetric(negTests, dataPath):
         testId = os.path.basename(filename).split('.csv')[0]
         if testId not in negTests:
             continue
-        idInfo, overallRlt, signalList = readRunCsv(filename)
-        
-        if not signalList or len(signalList) < 5:
-            logger.warning(f"File {filename} has incomplete or empty signal data")
+            
+        _, _, signalList = readRunCsv(filename)
+        if not signalList:
             continue
             
-        pcCurves.append([testId, 'ch1', signalList[0]])
-        negCurves.append([testId, 'ch2', signalList[1]])
-        negCurves.append([testId, 'ch3', signalList[2]])
-        negCurves.append([testId, 'ch4', signalList[3]])
-        negCurves.append([testId, 'ch5', signalList[4]])
-
+        layout = negTests[testId]['layout']
+        
+        # Process PC channel (ch1) if marked as PC
+        if layout[0].strip().upper() == 'PC' and len(signalList) > 0:
+            pcCurves.append([testId, 'ch1', signalList[0]])
+            
+        # Process target channels (ch2-ch5) if not marked as PC
+        for i, layout_mark in enumerate(layout[1:], 1):
+            if (layout_mark.strip().upper() != 'PC' and 
+                i < len(signalList)):
+                negCurves.append([testId, f'ch{i+1}', signalList[i]])
+    
     return negCurves, pcCurves
                 
 def POSMetric(posTests, dataPath):
+    """Process positive test data considering layout information"""
     filenames = sorted(dataPath.glob('*.csv'))
-
-    posCurvesL = []
-    posCurvesM = []
-    posCurvesH = []
+    posCurvesL = []  # Low concentration
+    posCurvesM = []  # Medium concentration
+    posCurvesH = []  # High concentration
     pcCurves = []
     
+    # Map concentration ranges to curve lists
+    conc_map = {
+        1: posCurvesL,
+        5: posCurvesM, 
+        10: posCurvesH
+    }
     
     for filename in filenames:
         testId = os.path.basename(filename).split('.csv')[0]
         if testId not in posTests:
             continue
-        _, _, signalList = readRunCsv(filename)
-        
-        pcCurves.append([testId, 'ch1', signalList[0]])
-        if posTests[testId] == 1:
-            posCurvesL.append([testId, 'ch2', signalList[1]])
-            posCurvesL.append([testId, 'ch3', signalList[2]])
-            posCurvesL.append([testId, 'ch4', signalList[3]])
-            posCurvesL.append([testId, 'ch5', signalList[4]])
-        elif posTests[testId] == 5:
-            posCurvesM.append([testId, 'ch2', signalList[1]])
-            posCurvesM.append([testId, 'ch3', signalList[2]])
-            posCurvesM.append([testId, 'ch4', signalList[3]])
-            posCurvesM.append([testId, 'ch5', signalList[4]])
-        elif posTests[testId] == 10:
-            posCurvesH.append([testId, 'ch2', signalList[1]])
-            posCurvesH.append([testId, 'ch3', signalList[2]])
-            posCurvesH.append([testId, 'ch4', signalList[3]])
-            posCurvesH.append([testId, 'ch5', signalList[4]])
             
+        _, _, signalList = readRunCsv(filename)
+        if not signalList:
+            continue
+            
+        test_info = posTests[testId]
+        layout = test_info['layout']
+        conc = test_info['conc']
+        
+        # Process PC channel (ch1) if marked as PC
+        if layout[0].strip().upper() == 'PC' and len(signalList) > 0:
+            pcCurves.append([testId, 'ch1', signalList[0]])
+            
+        # Process target channels (ch2-ch5) if not marked as PC
+        if conc in conc_map:
+            curves = conc_map[conc]
+            for i, layout_mark in enumerate(layout[1:], 1):
+                if (layout_mark.strip().upper() != 'PC' and 
+                    i < len(signalList)):
+                    curves.append([testId, f'ch{i+1}', signalList[i]])
+                
     return posCurvesL, posCurvesM, posCurvesH, pcCurves
     
 def getInvalTestsCsv(invalidTestLt):
