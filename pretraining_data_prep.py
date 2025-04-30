@@ -134,11 +134,12 @@ def update_csv_with_filenames(csv_path, column_name, file_names):
             row_data['Sample Concentration'] = 1000
             
         # Set Layout based on Run UID
-        if 'A2' in file_name:
+        if '_A2_' in file_name or '_A2' in file_name:
             row_data['Layout'] = 'A2,A2,A2,A2,A2'
         elif 'MS2' in file_name:
             row_data['Layout'] = 'PC,PC,PC,PC,PC'
-            
+        else:
+            row_data['Layout'] = ''
         new_df.loc[idx] = row_data
     
     # Save the updated CSV file

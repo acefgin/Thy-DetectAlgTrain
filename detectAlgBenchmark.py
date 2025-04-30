@@ -12,18 +12,40 @@ import pandas as pd
 import logging
 from pathlib import Path
 
+# Constants for algorithm parameters
+DEFAULT_START_PT = 75
+DEFAULT_RATE_TH = 0.5
+DEFAULT_WIDTH_LB = 15
+DEFAULT_AVG_RATE_LB = 0.9
+DEFAULT_THRESHOLD = 40
+
+# Constants for concentration categories
+LOW_CONC = 10
+MEDIUM_CONC = 500
+HIGH_CONC = 1000
+DEFAULT_CONC = 10
+
+# Constants for time conversion
+TIME_CONVERSION_FACTOR = 10 / 60
+TIME_OFFSET = 5
+
+# Default channel layout
+DEFAULT_LAYOUT = ['PC', 'Target', 'Target', 'Target', 'Target']
+
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='ADF parameter optimization')
 parser.add_argument('-d', '--data', type=str, default='./ADFtraining/',
                     help='Path to training data directory')
 parser.add_argument('-t', '--testlog', type=str, default='testlog.csv',
                     help='Path to test log file')
-parser.add_argument('-b', '--bounds', type=str, default='75,75|0.15,1|10,40|0.5,5|15,200',
+parser.add_argument('-b', '--bounds', type=str, default='75,75|0.15,10|10,40|0.5,5|15,250',
                     help='Parameter bounds in format "startPt|rateTh|width_LB|avgRate_LB|threshold" where each is "min,max"')
 parser.add_argument('-p', '--plot', action='store_true',
                     help='Flag to enable plotting false detection curves')
 parser.add_argument('-v', '--verbose', action='store_true',
                     help='Enable debug level logging')
+parser.add_argument('-o', '--output', type=str, default='falseDetectionList.csv',
+                    help='Output file for false detection list')
 
 
 args = parser.parse_args()
@@ -33,6 +55,7 @@ argBounds = args.bounds
 
 DATAPATH = Path(args.data)
 TESTLOGFILE = Path(args.testlog)
+OUTPUT_FILE = args.output
 
 current_date = datetime.now().strftime("%Y%m%d")
 training_file = os.path.basename(DATAPATH).split('.')[0]
@@ -42,7 +65,12 @@ log_filename = f'{current_date}_{training_file}.log'
 
 # Remove existing log file if it exists
 if os.path.exists(log_filename):
-    os.remove(log_filename)
+    try:
+        os.remove(log_filename)
+    except PermissionError:
+        # If file is in use, append to it instead
+        print(f"Warning: Cannot remove log file {log_filename} - it may be in use. Will append to it.")
+        # Continue execution - logging will append to existing file
 
 logging.basicConfig(filename=log_filename, level=logging.INFO,
                     format='%(asctime)s - %(levelname)s - %(message)s')
@@ -51,55 +79,64 @@ logger = logging.getLogger()
 if args.verbose:
     logger.setLevel(logging.DEBUG)
 
-def smooth(x,window_len=10,window='hanning'):
-
+def smooth(x, window_len=10, window='hanning'):
+    """
+    Smooth the data using a window with requested size and shape.
+    
+    Args:
+        x (array): Input signal
+        window_len (int): Length of the smoothing window
+        window (str): Type of window function ('flat', 'hanning', 'hamming', 'bartlett', 'blackman')
+        
+    Returns:
+        array: Smoothed signal
+    """
     if x.ndim != 1:
         raise ValueError("smooth only accepts 1 dimension arrays.")
 
     if x.size < window_len:
         raise ValueError("Input vector needs to be bigger than window size.")
 
-
-    if window_len<3:
+    if window_len < 3:
         return x
 
+    valid_windows = {
+        'flat': np.ones,
+        'hanning': np.hanning,
+        'hamming': np.hamming,
+        'bartlett': np.bartlett,
+        'blackman': np.blackman
+    }
 
-    if not window in ['flat', 'hanning', 'hamming', 'bartlett', 'blackman']:
-        raise ValueError("Window is on of 'flat', 'hanning', 'hamming', 'bartlett', 'blackman'")
+    if window not in valid_windows:
+        valid_window_names = ', '.join(f"'{name}'" for name in valid_windows.keys())
+        raise ValueError(f"Window must be one of {valid_window_names}")
 
-
-    s = np.r_[x[window_len-1:0:-1],x,x[-2:-window_len-1:-1]]
-    #print(len(s))
-    if window == 'flat': #moving average
-        w = np.ones(window_len,'d')
-    else:
-        w = eval('np.'+window+'(window_len)')
-
-    y = np.convolve(w/w.sum(),s,mode='valid')
-    return np.round(y, decimals = 3)
-
-def consecutiveSum(arr, window_len):
-    if arr.ndim != 1:
-        raise ValueError("smooth only accepts 1 dimension arrays.")
-
-    arrSize = arr.size
-
-    if arrSize < window_len:
-        length = arrSize
-    length = window_len
-    maxSum = np.float64(1.0)
-    for i in range(length):
-        maxSum += arr[i]
-    windowSum = maxSum
-    for i in range(length,arrSize):
-        windowSum += arr[i] - arr[i - length]
-        maxSum = np.maximum(maxSum, windowSum)
-    return maxSum
-
-def labelSteps(datas, startPt = 30, rateTh = 0.3, width_LB = 15, avgRate_LB = 0.8):
+    s = np.r_[x[window_len-1:0:-1], x, x[-2:-window_len-1:-1]]
     
-    #if len(datas) >= 10:
-    #	datas = smooth(datas)
+    if window == 'flat':  # moving average
+        w = valid_windows[window](window_len)
+    else:
+        w = valid_windows[window](window_len)
+
+    y = np.convolve(w/w.sum(), s, mode='valid')
+    return np.round(y, decimals=3)
+
+def labelSteps(datas, startPt=DEFAULT_START_PT, rateTh=DEFAULT_RATE_TH, 
+               width_LB=DEFAULT_WIDTH_LB, avgRate_LB=DEFAULT_AVG_RATE_LB):
+    """
+    Identify steps in the data that meet specified criteria.
+    
+    Args:
+        datas (array): Input signal data
+        startPt (int): Starting point to look for steps
+        rateTh (float): Rate threshold to identify step start/end
+        width_LB (int): Minimum width of valid steps
+        avgRate_LB (float): Minimum average rate for valid steps
+        
+    Returns:
+        tuple: Contains step information, metrics about the steps
+    """
     dataDiffs = np.diff(datas)
 
     listOfSteps = []
@@ -140,7 +177,7 @@ def labelSteps(datas, startPt = 30, rateTh = 0.3, width_LB = 15, avgRate_LB = 0.
             index = step[0] - 1
             stepWidth += step[1] - step[0] + 1
 
-            # Accumulate signal increase of all Ture step as Step Diff
+            # Accumulate signal increase of all True steps as Step Diff
             while index < step[1] + 1:
                 stepDiff = stepDiff + dataDiffs[index]
                 # Capture time for highest diff as Cp
@@ -148,15 +185,27 @@ def labelSteps(datas, startPt = 30, rateTh = 0.3, width_LB = 15, avgRate_LB = 0.
                     maxDiff = dataDiffs[index]
                     maxIndex = index
                 index += 1
-            if len(datas) > 10: cp = (maxIndex - datas[maxIndex + 1] / dataDiffs[maxIndex]) * 10 / 60 - 5
+            
+            # Calculate Cp: Adjusts maxIndex by the ratio of signal to rate at that point
+            # Then converts to minutes using TIME_CONVERSION_FACTOR and adjusts by TIME_OFFSET
+            if len(datas) > 10 and maxIndex < len(datas)-1 and maxIndex < len(dataDiffs):
+                # Adjust index by the ratio of signal to rate
+                adjusted_index = maxIndex
+                if dataDiffs[maxIndex] > 0:  # Prevent division by zero
+                    adjusted_index = maxIndex - datas[maxIndex + 1] / dataDiffs[maxIndex]
+                # Convert to minutes
+                cp = adjusted_index * TIME_CONVERSION_FACTOR - TIME_OFFSET
+                
     avgRate = 0
-    if stepWidth != 0: avgRate = stepDiff/stepWidth
+    if stepWidth != 0: 
+        avgRate = stepDiff/stepWidth
     
     return listOfSteps, np.round(stepDiff, 1), round(cp, 1), round(stepWidth, 1), round(avgRate, 1), np.round(maxDiff, 1)
 
 
 def readRunCsv(filename):
-    """Read and parse a run CSV file to extract test information and signal data.
+    """
+    Read and parse a run CSV file to extract test information and signal data.
     
     Args:
         filename (str): Path to the CSV file to read
@@ -168,87 +217,178 @@ def readRunCsv(filename):
             - signalList (list): List of smoothed signal data for each channel
     """
     # Initialize data structures
-    x = []  # Time points
     signalList = []  # Processed signals
-    channel_signals = [[] for _ in range(5)]  # Raw signals for each channel
     test_info = []  # Test identification info
-    channel_results = []  # Results by channel
     overall_result = ""
 
-    with open(filename, 'r') as csvfile:
-        rows = csv.reader(csvfile, delimiter=',')
-        row_idx = 0
-        header_positions = {}
-
-        for row in rows:
-            # Remove empty cells
-            row = [cell for cell in row if cell.strip()]
+    try:
+        # Read the entire file to analyze its structure
+        with open(filename, 'r') as csvfile:
+            rows = list(csv.reader(csvfile, delimiter=','))
             
-            # Process header row
-            if row_idx == 0:
-                header_positions = {header: idx for idx, header in enumerate(row)}
-            
-            # Process test info row
-            elif row_idx == 1:
-                barcode = row[header_positions["Barcode"]] if "Barcode" in header_positions and header_positions["Barcode"] < len(row) else ""
-                overall_result = row[header_positions["OverallResult"]] if "OverallResult" in header_positions and header_positions["OverallResult"] < len(row) else ""
-                test_info.append([row[0], barcode])
-            
-            # Process time points row
-            elif row_idx == 8:
-                time_idx = next((i for i, cell in enumerate(row) if cell.strip() == 'Time'), None)
-                if time_idx is not None:
-                    x = row[time_idx + 4:]
-                x = [float(i)/1000/60 - 5 for i in x]  # Convert to minutes
-            
-            # Process channel data rows (11-15)
-            elif 11 <= row_idx <= 15:
-                channel_idx = row_idx - 11
-                target_idx = next((i for i, cell in enumerate(row) if cell.strip() == 'Target'), None)
-                
-                if target_idx is not None:
-                    channel_results.append(row[target_idx + 1])
-                    signal_data = row[target_idx + 4:]
-                    channel_signals[channel_idx] = np.array([float(i) for i in signal_data])
+        if not rows or len(rows) < 5:
+            logger.warning(f"Empty or truncated CSV file: {filename}")
+            return [], "", []
+        
+        # First locate the test metadata in the header section
+        for i in range(min(5, len(rows))):
+            if 'Barcode' in rows[i] and 'OverallResult' in rows[i]:
+                header_row = i
+                if i+1 < len(rows):
+                    info_row = i+1
                     
-                    if len(channel_signals[channel_idx]) >= 9:
-                        signalList.append(smooth(channel_signals[channel_idx]))
+                    # Extract test info
+                    try:
+                        header = rows[header_row]
+                        info = rows[info_row]
+                        
+                        # Find column indices
+                        barcode_idx = header.index('Barcode') if 'Barcode' in header else -1
+                        result_idx = header.index('OverallResult') if 'OverallResult' in header else -1
+                        ruid_idx = header.index('Ruid') if 'Ruid' in header else 1  # Default to column 1
+                        
+                        if barcode_idx >= 0 and barcode_idx < len(info):
+                            barcode = info[barcode_idx]
+                        else:
+                            barcode = ""
+                            
+                        if result_idx >= 0 and result_idx < len(info):
+                            overall_result = info[result_idx]
+                        else:
+                            overall_result = ""
+                            
+                        if ruid_idx >= 0 and ruid_idx < len(info):
+                            test_id = info[ruid_idx]
+                        else:
+                            test_id = os.path.basename(filename).split('_')[0]
+                            
+                        test_info = [test_id, barcode]
+                        break
+                    except Exception as e:
+                        logger.warning(f"Error parsing header in {filename}: {str(e)}")
+        
+        # Now locate the signals section - look for row with "SampleId,Ruid,Well,Type,TargetName,Result,VoltageDifference,Readings"
+        signals_header_row = -1
+        for i in range(len(rows)):
+            if 'Well' in rows[i] and 'Type' in rows[i] and 'Readings' in rows[i]:
+                signals_header_row = i
+                break
+                
+        if signals_header_row == -1:
+            logger.warning(f"Could not find signals section in {filename}")
+            return test_info, overall_result, []
             
-            row_idx += 1
-
+        # Process Target rows with channel data
+        target_rows = []
+        for i in range(signals_header_row + 1, len(rows)):
+            if len(rows[i]) > 4 and 'Target' in rows[i][3]:  # Type column is Target
+                target_rows.append(i)
+        
+        # Extract channel data for each target row
+        for row_idx in target_rows:
+            if row_idx < len(rows):
+                row = rows[row_idx]
+                
+                # Check if this is a channel with signal data
+                if len(row) < 8:  # Need at least 8 columns for readings
+                    continue
+                    
+                try:
+                    # Remove empty strings and convert to float
+                    readings_start_idx = 7  # Readings column starts at index 7
+                    signal_data = []
+                    
+                    for val in row[readings_start_idx:]:
+                        if val.strip():  # Skip empty cells
+                            try:
+                                signal_data.append(float(val))
+                            except ValueError:
+                                # Skip non-numeric values
+                                pass
+                    
+                    if len(signal_data) >= 9:
+                        # Apply smoothing to the signal data
+                        signalList.append(smooth(np.array(signal_data)))
+                    else:
+                        # Add an empty placeholder for consistent channel indexing
+                        signalList.append(np.array([]))
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing signal data in {filename}, row {row_idx}: {str(e)}")
+                    # Add an empty placeholder
+                    signalList.append(np.array([]))
+        
+        # If we found no valid signal data, log a warning
+        if not signalList:
+            logger.warning(f"No valid signal data found in {filename}")
+    
+    except Exception as e:
+        logger.error(f"Failed to parse CSV file {filename}: {str(e)}")
+        return test_info, overall_result, []
+        
     return test_info, overall_result, signalList
     
 def testsGrouping(testlogFile):
-    """Group tests based on sample type and layout information"""
+    """
+    Group tests based on sample type and layout information
+    
+    Args:
+        testlogFile (Path): Path to the test log CSV file
+        
+    Returns:
+        tuple: Contains dictionaries of positive and negative tests and a list of outliers
+    """
     df = pd.read_csv(testlogFile)
     posTests = {}
     negTests = {}
     outliers = []
-    
-    # Default layout when not specified
-    DEFAULT_LAYOUT = ['PC', 'Target', 'Target', 'Target', 'Target']
-    
+
     for _, row in df.iterrows():
         test_id = row['Run UID']
-        sample_type = row['Sample Type']
-        
-        # Handle missing Layout column or empty layout
-        try:
-            if pd.isna(row.get('Layout')) or not row['Layout'].strip():
-                layout = DEFAULT_LAYOUT
-            else:
-                layout = [item.strip() for item in row['Layout'].split(',')]
-                # If layout doesn't have exactly 5 items, use default
-                if len(layout) != 5:
-                    layout = DEFAULT_LAYOUT
-        except (AttributeError, KeyError):
-            # Layout column doesn't exist
-            layout = DEFAULT_LAYOUT
-            
-        # Store test info with layout
+        sample_type = None # Initialize sample_type
+
+        # Try getting from 'Sample Type' column first
+        if 'Sample Type' in row.index and not pd.isna(row['Sample Type']) and row['Sample Type'].strip():
+            sample_type = row['Sample Type']
+        # Fallback to 'Expected Result' column
+        elif 'Expected Result' in row.index and not pd.isna(row['Expected Result']) and row['Expected Result'].strip():
+             sample_type = row['Expected Result']
+
+        # Handle cases where neither column provides a valid sample type
+        if sample_type is None:
+            logger.warning(f"Could not determine sample type for Test ID {test_id} from 'Sample Type' or 'Expected Result'. Skipping.")
+            outliers.append(test_id) # Treat as outlier or handle as needed
+            continue # Skip processing this row
+
+        # Handle missing Layout column safely
+        layout_str = row.get('Layout') # Use .get() for safe access
+        if pd.isna(layout_str) or not layout_str.strip():
+            layout = DEFAULT_LAYOUT.copy()
+        else:
+            layout = [item.strip() for item in layout_str.split(',')]
+            # If layout doesn't have exactly 5 items, use default
+            if len(layout) != 5:
+                logger.warning(f"Layout for Test ID {test_id} is invalid: '{layout_str}'. Using default.")
+                layout = DEFAULT_LAYOUT.copy()
+
+        # Handle missing Sample Concentration column safely
+        conc = row.get('Sample Concentration') # Use .get() for safe access
+        # Default to DEFAULT_CONC if column is missing or value is NaN
+        if pd.isna(conc):
+            conc = DEFAULT_CONC
+        else:
+            try:
+                 # Ensure concentration is a number
+                 conc = float(conc)
+            except ValueError:
+                 logger.warning(f"Invalid concentration value for Test ID {test_id}: '{row['Sample Concentration']}'. Using default {DEFAULT_CONC}.")
+                 conc = DEFAULT_CONC
+
+
+        # Store test info with layout and concentration
         if sample_type == 'Positive':
             posTests[test_id] = {
-                'conc': row['Sample Concentration'],
+                'conc': conc,
                 'layout': layout
             }
         elif sample_type == 'Negative':
@@ -256,102 +396,205 @@ def testsGrouping(testlogFile):
                 'layout': layout
             }
         else:
+            # Handle other sample types if necessary, or treat as outliers
+            logger.warning(f"Unknown sample type '{sample_type}' for Test ID {test_id}. Treating as outlier.")
             outliers.append(test_id)
-            
+
     # Log the test counts
     logger.info(f'POS total #: {len(posTests)}, NEG total #: {len(negTests)}')
     if outliers:
         logger.warning(f'Found {len(outliers)} outlier tests: {outliers}')
-            
+
     return posTests, negTests, outliers
 
 def NTCMetric(negTests, dataPath):
-    """Process negative control test data considering layout information"""
+    """
+    Process negative control test data considering layout information
+    
+    Args:
+        negTests (dict): Dictionary of negative tests with layout information
+        dataPath (Path): Path to the data directory
+        
+    Returns:
+        tuple: Contains lists of negative curves and PC curves
+    """
     filenames = sorted(dataPath.glob('*.csv'))
     negCurves = []
     pcCurves = []
+    missing_pc_info = []  # Store test_ids and filenames with missing PC curves
     
+    # Create a dictionary to map test IDs to filenames
+    test_files = {}
     for filename in filenames:
-        testId = os.path.basename(filename).split('.csv')[0]
-        if testId not in negTests:
+        file_basename = os.path.basename(filename)
+        # Add file to dictionary for any test ID it contains
+        for test_id in negTests:
+            if test_id in file_basename:
+                test_files[test_id] = filename
+    
+    for test_id, test_info in negTests.items():
+        # Skip if not a PC layout in channel 1
+        if test_info['layout'][0].strip().upper() != 'PC':
             continue
             
+        if test_id not in test_files:
+            logger.debug(f"No file found for negative test ID: {test_id}")
+            missing_pc_info.append((test_id, "File not found"))
+            continue
+            
+        filename = test_files[test_id]
         _, _, signalList = readRunCsv(filename)
         if not signalList:
+            logger.debug(f"No signal data found for test ID: {test_id}")
+            missing_pc_info.append((test_id, os.path.basename(str(filename))))
             continue
             
-        layout = negTests[testId]['layout']
+        layout = test_info['layout']
         
         # Process PC channel (ch1) if marked as PC
-        if layout[0].strip().upper() == 'PC' and len(signalList) > 0:
-            pcCurves.append([testId, 'ch1', signalList[0]])
+        if layout[0].strip().upper() == 'PC':
+            if len(signalList) > 0 and len(signalList[0]) > 0:
+                pcCurves.append([test_id, 'ch1', signalList[0]])
+            else:
+                logger.debug(f"Missing PC curve data for test ID: {test_id}")
+                missing_pc_info.append((test_id, os.path.basename(str(filename))))
             
         # Process target channels (ch2-ch5) if not marked as PC
         for i, layout_mark in enumerate(layout[1:], 1):
             if (layout_mark.strip().upper() != 'PC' and 
                 i < len(signalList)):
-                negCurves.append([testId, f'ch{i+1}', signalList[i]])
+                # Check if signal data is valid
+                if i < len(signalList) and signalList[i] is not None and len(signalList[i]) > 0:
+                    negCurves.append([test_id, f'ch{i+1}', signalList[i]])
     
-    return negCurves, pcCurves
+    logger.info(f"Number of negative curves: {len(negCurves)}")
+    
+    # Log details about missing PC curves
+    if missing_pc_info:
+        logger.warning(f"Missing PC curves from {len(missing_pc_info)} negative tests")
+        for test_id, filename in missing_pc_info:
+            logger.warning(f"  - Test ID {test_id}: {filename}")
+    
+    return negCurves, pcCurves, missing_pc_info
                 
 def POSMetric(posTests, dataPath):
-    """Process positive test data considering layout information"""
+    """
+    Process positive test data considering layout information
+    
+    Args:
+        posTests (dict): Dictionary of positive tests with layout and concentration
+        dataPath (Path): Path to the data directory
+        
+    Returns:
+        tuple: Contains lists of positive curves at different concentrations and PC curves
+    """
     filenames = sorted(dataPath.glob('*.csv'))
     posCurvesL = []  # Low concentration
     posCurvesM = []  # Medium concentration
     posCurvesH = []  # High concentration
     pcCurves = []
+    missing_pc_info = []  # Store test_ids and filenames with missing PC curves
+    
+    # Create a dictionary to map test IDs to filenames
+    test_files = {}
+    for filename in filenames:
+        file_basename = os.path.basename(filename)
+        # Add file to dictionary for any test ID it contains
+        for test_id in posTests:
+            if test_id in file_basename:
+                test_files[test_id] = filename
     
     # Map concentration ranges to curve lists
     conc_map = {
-        1: posCurvesL,
-        5: posCurvesM, 
-        10: posCurvesH
+        LOW_CONC: posCurvesL,
+        MEDIUM_CONC: posCurvesM, 
+        HIGH_CONC: posCurvesH
     }
     
-    for filename in filenames:
-        testId = os.path.basename(filename).split('.csv')[0]
-        if testId not in posTests:
+    for test_id, test_info in posTests.items():
+        # Skip if not a PC layout in channel 1
+        if test_info['layout'][0].strip().upper() != 'PC':
             continue
             
+        if test_id not in test_files:
+            logger.debug(f"No file found for positive test ID: {test_id}")
+            missing_pc_info.append((test_id, "File not found"))
+            continue
+            
+        filename = test_files[test_id]
         _, _, signalList = readRunCsv(filename)
         if not signalList:
+            logger.debug(f"No signal data found for test ID: {test_id}")
+            missing_pc_info.append((test_id, os.path.basename(str(filename))))
             continue
             
-        test_info = posTests[testId]
         layout = test_info['layout']
         conc = test_info['conc']
         
         # Process PC channel (ch1) if marked as PC
-        if layout[0].strip().upper() == 'PC' and len(signalList) > 0:
-            pcCurves.append([testId, 'ch1', signalList[0]])
+        if layout[0].strip().upper() == 'PC':
+            if len(signalList) > 0 and len(signalList[0]) > 0:
+                pcCurves.append([test_id, 'ch1', signalList[0]])
+            else:
+                logger.debug(f"Missing PC curve data for test ID: {test_id}")
+                missing_pc_info.append((test_id, os.path.basename(str(filename))))
             
         # Process target channels (ch2-ch5) if not marked as PC
+        curves = None
         if conc in conc_map:
             curves = conc_map[conc]
-            for i, layout_mark in enumerate(layout[1:], 1):
-                if (layout_mark.strip().upper() != 'PC' and 
-                    i < len(signalList)):
-                    curves.append([testId, f'ch{i+1}', signalList[i]])
-                
-    return posCurvesL, posCurvesM, posCurvesH, pcCurves
-    
-def getInvalTestsCsv(invalidTestLt):
-    dataPath = './NSCPI_training/'
-    filenames = sorted(glob.glob(os.path.join(dataPath, '*.csv')))
-    for test in invalidTestLt:
-        baseName = test[0] + '.csv'
-        filePath = os.path.join(dataPath, baseName)
-        # shutil.copy(filePath, dst)
+        else:
+            # If concentration doesn't match predefined levels, use closest one
+            closest_conc = LOW_CONC  # Default to low
+            if conc > (MEDIUM_CONC + LOW_CONC) / 2:
+                if conc > (HIGH_CONC + MEDIUM_CONC) / 2:
+                    closest_conc = HIGH_CONC
+                else:
+                    closest_conc = MEDIUM_CONC
+            curves = conc_map[closest_conc]
+            logger.debug(f"Test ID {test_id} has non-standard concentration {conc}. Using {closest_conc} category.")
         
-def curvesMetric(posCurves, negCurves, pcCurves, paras = [75, 0.3, 15, 0.8, 40]):
+        for i, layout_mark in enumerate(layout[1:], 1):
+            if (layout_mark.strip().upper() != 'PC' and 
+                i < len(signalList)):
+                if signalList[i] is not None and len(signalList[i]) > 0:
+                    curves.append([test_id, f'ch{i+1}', signalList[i]])
     
+    logger.info(f"Number of positive curves: {len(posCurvesL) + len(posCurvesM) + len(posCurvesH)}")
+    
+    # Log details about missing PC curves
+    if missing_pc_info:
+        logger.warning(f"Missing PC curves from {len(missing_pc_info)} positive tests")
+        for test_id, filename in missing_pc_info:
+            logger.warning(f"  - Test ID {test_id}: {filename}")
+    
+    # Log expected PC count from positive tests only
+    expected_pc_from_pos = sum(1 for test_info in posTests.values() 
+                              if test_info['layout'][0].strip().upper() == 'PC')
+    if len(pcCurves) != expected_pc_from_pos:
+        logger.warning(f"Expected {expected_pc_from_pos} PC curves from positive tests, found {len(pcCurves)}.")
+        logger.warning(f"This discrepancy may be due to missing files, invalid data, or tests without PC layout.")
+    
+    return posCurvesL, posCurvesM, posCurvesH, pcCurves, missing_pc_info
+    
+def curvesMetric(posCurves, negCurves, pcCurves, paras=[DEFAULT_START_PT, DEFAULT_RATE_TH, DEFAULT_WIDTH_LB, DEFAULT_AVG_RATE_LB, DEFAULT_THRESHOLD]):
+    """
+    Calculate metrics for curve classification based on given parameters
+    
+    Args:
+        posCurves (list): List of positive curves at different concentrations
+        negCurves (list): List of negative curves
+        pcCurves (list): List of PC curves
+        paras (list): Parameters for the detection algorithm
+        
+    Returns:
+        tuple: Contains counts of false positives, false negatives, invalid PCs, and detection details
+    """
     startPt, rateTh, width_LB, avgRate_LB, threshold = paras
     ivCnt, fpCnt, fnLCnt, fnMCnt, fnHCnt = 0, 0, 0, 0, 0
-    pcThreshold = 40
     
     posCurvesL, posCurvesM, posCurvesH = posCurves
-    curvesDist = {'PC' : pcCurves, 'NEG' : negCurves, 'POSL' : posCurvesL, 'POSM' : posCurvesM, 'POSH' : posCurvesH}
+    curvesDist = {'PC': pcCurves, 'NEG': negCurves, 'POSL': posCurvesL, 'POSM': posCurvesM, 'POSH': posCurvesH}
     falseDetectionList = []
     
     for type, curves in curvesDist.items():
@@ -359,8 +602,8 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras = [75, 0.3, 15, 0.8, 40])
             testId = curve[0]
             ch = curve[1]
             signal = curve[-1]
-            _, diff, cp, stepWidth, avgRate, maxDiff= labelSteps(signal, startPt, rateTh, width_LB, avgRate_LB)
-            rlt = (diff >= threshold) if type != 'PC' else (diff >= pcThreshold)
+            _, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(signal, startPt, rateTh, width_LB, avgRate_LB)
+            rlt = (diff >= threshold) 
             
             if not rlt and type != 'NEG':
                 if type == 'PC':
@@ -379,121 +622,564 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras = [75, 0.3, 15, 0.8, 40])
                 fpCnt += 1
                 falseDetectionList.append(['FP', testId, ch, signal])
             
-    logger.debug(f'rateTh = {rateTh}, width_LB = {width_LB}, avgRate_LB = {avgRate_LB}, threshold = {threshold}')
+    logger.debug(f'startPt = {startPt}, rateTh = {rateTh}, width_LB = {width_LB}, avgRate_LB = {avgRate_LB}, threshold = {threshold}')
     return fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, falseDetectionList
 
-def paraSweep( paraName, range, step, testlogFile = Path('SC2A2_testlog.csv'), dataPath = Path('./SC2A2_training/')):
-    # idAudit(testlogFile)
-    posTests, negTests, outliers = testsGrouping(testlogFile)
-    negCurves, pcNTC = NTCMetric(negTests, dataPath)
+def paraSweep(paraName, range_vals, step, testlogFile=TESTLOGFILE, dataPath=DATAPATH):
+    """
+    Sweep through parameter values to find optimal settings
     
-    posCurvesL, posCurvesM, posCurvesH, pcPOS = POSMetric(posTests, dataPath)
+    Args:
+        paraName (str): Parameter name to sweep ('startPt', 'rateTh', etc.)
+        range_vals (tuple): Range of values (min, max)
+        step (float): Step size for the sweep
+        testlogFile (Path): Path to the test log file
+        dataPath (Path): Path to the data directory
+        
+    Returns:
+        tuple: Best parameters and corresponding metrics
+    """
+    posTests, negTests, outliers = testsGrouping(testlogFile)
+    negCurves, pcNTC, _ = NTCMetric(negTests, dataPath)
+    
+    posCurvesL, posCurvesM, posCurvesH, pcPOS, pos_missing = POSMetric(posTests, dataPath)
     posCurves = [posCurvesL, posCurvesM, posCurvesH]
     pcCurves = pcNTC + pcPOS
     
+    # Default parameters
+    paras = [DEFAULT_START_PT, DEFAULT_RATE_TH, DEFAULT_WIDTH_LB, DEFAULT_AVG_RATE_LB, DEFAULT_THRESHOLD]
     
-    paras = [75, 0.5, 15, 0.9, 40]
-    index = 0
-    if paraName == 'startPt':
-        index = 0
-    elif paraName == 'rateTh':
-        index = 1
-    elif paraName == 'width_LB':
-        index = 2
-    elif paraName == 'avgRate_LB':
-        index = 3
-    elif paraName == 'threshold': 
-        index = 4
-    paraSweeptLt = np.arange(range[0], range[1], step)
-    print(f"Sweeping {paraName} from {range[0]} to {range[1]} with step {step}")
+    # Map parameter name to index
+    param_indices = {
+        'startPt': 0,
+        'rateTh': 1,
+        'width_LB': 2,
+        'avgRate_LB': 3,
+        'threshold': 4
+    }
+    
+    if paraName not in param_indices:
+        logger.error(f"Invalid parameter name: {paraName}")
+        return paras, None
+        
+    index = param_indices[paraName]
+    
+    # Create parameter sweep range
+    paraSweeptLt = np.arange(range_vals[0], range_vals[1], step)
+    if not len(paraSweeptLt):
+        logger.error(f"Empty parameter sweep range: {range_vals} with step {step}")
+        return paras, None
+        
+    logger.info(f"Sweeping {paraName} from {range_vals[0]} to {range_vals[1]} with step {step}")
+    
+    # Track best parameters and results
+    best_params = paras.copy()
+    best_error_sum = float('inf')
+    best_results = None
+    
+    # Create results dataframe for all parameter values
+    results_data = []
     
     for para in paraSweeptLt:
-        paras[index] = np.round(para,2)
+        # Round parameter value for better readability
+        paras[index] = np.round(para, 2)
         
         fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, fdList = curvesMetric(posCurves, negCurves, pcCurves, paras)
-        # construct result into dataframe
-        d = {'FP': [fpCnt, len(negCurves)], 'FNH': [fnHCnt, len(posCurvesH)], 'FNM': [fnMCnt, len(posCurvesM)], 'FNL': [fnLCnt, len(posCurvesL)], 'IV': [ivCnt, len(pcCurves)]}
-        df = pd.DataFrame(data = d, index = ['# of curves', 'Total # of curves'])
         
+        # Calculate error rate
+        total_errors = fpCnt + fnHCnt + fnMCnt + fnLCnt + ivCnt
+        
+        # Track if this is the best result so far
+        if total_errors < best_error_sum:
+            best_error_sum = total_errors
+            best_params = paras.copy()
+            best_results = {
+                'FP': [fpCnt, len(negCurves)],
+                'FNH': [fnHCnt, len(posCurvesH)],
+                'FNM': [fnMCnt, len(posCurvesM)],
+                'FNL': [fnLCnt, len(posCurvesL)],
+                'IV': [ivCnt, len(pcCurves)]
+            }
+            
+        # Store results for this parameter value
+        results_data.append({
+            paraName: paras[index],
+            'FP': fpCnt,
+            'FNH': fnHCnt,
+            'FNM': fnMCnt,
+            'FNL': fnLCnt, 
+            'IV': ivCnt,
+            'Total Errors': total_errors
+        })
+        
+        # construct result into dataframe for display
+        d = {
+            'FP': [fpCnt, len(negCurves)], 
+            'FNH': [fnHCnt, len(posCurvesH)], 
+            'FNM': [fnMCnt, len(posCurvesM)], 
+            'FNL': [fnLCnt, len(posCurvesL)], 
+            'IV': [ivCnt, len(pcCurves)]
+        }
+        df = pd.DataFrame(data=d, index=['# of curves', 'Total # of curves'])
+        
+        print(f"\nFor {paraName} = {paras[index]}:")
         print(df)
-
-def getFalseDetectionList(paras = [75, 0.3, 15, 0.8, 40], plotType = 'FP'):
-    testlogFile = 'SC2A2_testlog.csv'
-    # idAudit(testlogFile)
-    posTests, negTests, outliers = testsGrouping(testlogFile)
-    negCurves, pcNTC = NTCMetric(negTests)
     
-    posCurves1, posCurves10, posCurves100, pcPOS = POSMetric(posTests)
-    posCurves = [posCurves1, posCurves10, posCurves100]
+    # Create a summary dataframe of all results
+    results_df = pd.DataFrame(results_data)
+    
+    # Log the best parameters found
+    logger.info(f"Best {paraName} value: {best_params[index]}")
+    logger.info(f"Best parameter set: startPt={best_params[0]:.2f}, rateTh={best_params[1]:.2f}, "
+               f"width_LB={int(best_params[2])}, avgRate_LB={best_params[3]:.2f}, threshold={best_params[4]:.2f}")
+    logger.info(f"Total errors: {best_error_sum}")
+    
+    return best_params, best_results
+
+def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annotations=True, max_curves_per_plot=50):
+    """
+    Plot false detection curves for analysis
+    
+    Args:
+        fdList (list): List of false detection data
+        plotType (str): Type of false detection to plot ('FP', 'FNL', etc.)
+        paras (list): Parameters used for detection
+        save_path (str, optional): Custom path to save the plot. If None, uses default naming.
+        show_annotations (bool): Whether to display annotations showing detection metrics
+        max_curves_per_plot (int): Maximum number of curves to show in a single plot
+        
+    Returns:
+        list: List of figure objects for further customization if needed
+    """
+    startPt, rate, width, avgRate, th = paras[0], paras[1], paras[2], paras[3], paras[4]
+    
+    # Filter curves for the requested plot type
+    relevant_curves = [df for df in fdList if df[0] in plotType]
+    
+    if not relevant_curves:
+        logger.warning(f"No curves found for plot type: {plotType}")
+        # Create a simple empty plot
+        fig, ax = plt.subplots(figsize=(24, 12), dpi=80)
+        ax.text(15, 250, f"No {plotType} curves found", 
+                horizontalalignment='center', fontsize=24)
+        plt.grid(True)
+        # Auto adjust x and y limits
+        ax.autoscale(enable=True, axis='both', tight=True)
+
+        if save_path:
+            fileName = save_path
+        else:
+            fileName = f'falseDetection_{plotType}_rateTh_{rate}_widthLb_{width}_avgRateLb_{avgRate}_th_{th}.png'
+        plt.tight_layout()
+        plt.savefig(fileName, dpi=120)
+        logger.info(f"Saved empty plot to {fileName}")
+        return [fig]
+    
+    # Calculate how many plots we need
+    num_plots = (len(relevant_curves) + max_curves_per_plot - 1) // max_curves_per_plot
+    logger.info(f"Splitting {len(relevant_curves)} curves of type {plotType} into {num_plots} plots")
+    
+    all_figures = []
+    curves_metrics = []  # Store metrics data for CSV export
+    
+    # Create multiple plots if needed
+    for plot_idx in range(num_plots):
+        # Use sns.set_style instead of plt.style.use
+        sns.set_style("whitegrid")
+        
+        # Set color palette based on plot type
+        if plotType == 'FP':
+            color_palette = sns.color_palette("Reds_d", 8)
+        elif plotType in ['FNL', 'FNM', 'FNH']:
+            color_palette = sns.color_palette("Blues_d", 8)
+        elif plotType == 'IV':
+            color_palette = sns.color_palette("Purples_d", 8)
+        else:
+            color_palette = sns.color_palette("husl", 8)
+        
+        plt.rc('axes', linewidth=2)
+        font = {'weight': 'bold', 'size': 21}
+        plt.rc('font', **font)
+        
+        # Standard figure size since we no longer need space for the table
+        fig, ax = plt.subplots(figsize=(24, 12), dpi=80)
+        all_figures.append(fig)
+        
+        # Calculate start and end indices for this chunk
+        start_idx = plot_idx * max_curves_per_plot
+        end_idx = min(start_idx + max_curves_per_plot, len(relevant_curves))
+        chunk_curves = relevant_curves[start_idx:end_idx]
+        
+        # Plot title based on plot type - Simplified to not include parameters
+        title_map = {
+            'FP': 'False Positive Detection Curves',
+            'FNL': 'False Negative (Low Conc.) Detection Curves',
+            'FNM': 'False Negative (Medium Conc.) Detection Curves',
+            'FNH': 'False Negative (High Conc.) Detection Curves',
+            'IV': 'Invalid PC Detection Curves'
+        }
+        
+        title = title_map.get(plotType, f'False Detection Curves for {plotType}')
+        if num_plots > 1:
+            title += f' (Group {plot_idx+1} of {num_plots})'
+            
+        # Use a cleaner title without parameters
+        plt.title(title, fontsize=22, fontweight='bold')
+        
+        plt.xlabel('Time (mins)', fontsize=19, fontweight='bold')
+        plt.ylabel('Signal (mvs)', fontsize=19, fontweight='bold')
+        
+        # Add vertical line at startPt
+        time_at_startPt = startPt * TIME_CONVERSION_FACTOR - TIME_OFFSET
+        if time_at_startPt >= 0 and time_at_startPt <= 30:
+            ax.axvline(x=time_at_startPt, color='green', linestyle=':', alpha=0.7,
+                    label=f'Start Point ({startPt})')
+        
+        # Plot curves with colors from palette
+        curves_info = []
+        plotted_curves = 0
+        max_signal = 500  # Default max
+        
+        for i, df in enumerate(chunk_curves):
+            testId = df[1]
+            ch = df[2]
+            signal = df[3]
+            curve_label = f"{testId}_{ch}"
+            
+            # Calculate time series (x-axis)
+            xSeries = np.arange(0, len(signal), 1)
+            xSeries = np.interp(xSeries, (xSeries.min(), xSeries.max()), (0, 30))
+            
+            # Plot with color from palette (cycling through)
+            color = color_palette[i % len(color_palette)]
+            line, = ax.plot(xSeries, signal, label=curve_label, color=color, linewidth=2)
+            
+            # Calculate metrics for this curve for annotation
+            steps, diff, cp, stepWidth, avgRate_val, maxDiff = labelSteps(signal, startPt, rate, 
+                                                                width, avgRate)
+            
+            # Store metrics for CSV export
+            curves_metrics.append({
+                'Type': plotType,
+                'TestID': testId,
+                'Channel': ch,
+                'Diff': diff,
+                'Cp': cp,
+                'StepWidth': stepWidth,
+                'AvgRate': avgRate_val,
+                'MaxDiff': maxDiff
+            })
+            
+            # Store curve info for annotation
+            curves_info.append({
+                'line': line,
+                'label': curve_label,
+                'metrics': {
+                    'diff': diff,
+                    'cp': cp,
+                    'stepWidth': stepWidth,
+                    'avgRate': avgRate_val,
+                    'maxDiff': maxDiff
+                },
+                'signal': signal,
+                'xSeries': xSeries
+            })
+            
+            plotted_curves += 1
+        
+        # Add parameters as a box at the right side of title
+        param_text = f"Parameters: startPt={startPt}, rateTh={rate:.2f}, widthLb={width}, avgRateLb={avgRate:.2f}, Th={th:.2f}"
+        param_box = dict(boxstyle='round,pad=0.5', facecolor='lightblue', alpha=0.7)
+        ax.text(0.98, 0.98, param_text, transform=ax.transAxes, fontsize=14,
+                verticalalignment='top', horizontalalignment='right',
+                bbox=param_box)
+        
+        # Add annotations if requested and curves exist
+        if show_annotations and plotted_curves > 0 and curves_info:
+            # No metrics table, just adjust layout for legend
+            plt.subplots_adjust(bottom=0.15, top=0.92, left=0.07, right=0.93)
+            
+            # Add markers at critical points for each curve
+            for info in curves_info:
+                signal = info['signal']
+                xSeries = info['xSeries']
+                metrics = info['metrics']
+                
+                # Find index of the Cp value
+                if metrics['cp'] > 0:
+                    cp_index = int((metrics['cp'] + TIME_OFFSET) / TIME_CONVERSION_FACTOR)
+                    if cp_index < len(signal):
+                        ax.plot(metrics['cp'], signal[cp_index], 'o', color='black', markersize=8,
+                            markeredgecolor=info['line'].get_color(), markeredgewidth=2)
+                            
+        # Adjust plot settings
+        plt.grid(True)
+        ax.set_xlim([0, 30])
+        ax.set_ylim([0, max_signal])
+        
+        # Add legend at the bottom of the image (outside plotting area) for all plot types
+        if plotted_curves > 0:
+            # Calculate optimal number of columns based on number of curves
+            if plotted_curves <= 4:
+                ncols = plotted_curves
+            else:
+                ncols = min(6, plotted_curves // 2 + 1)  # Limit to at most 6 columns
+                
+            # Position legend below the plot with improved width matching
+            legend = ax.legend(ncol=ncols, loc='upper center', 
+                              fontsize='small', framealpha=0.8, 
+                              bbox_to_anchor=(0.5, -0.05), borderaxespad=0.8)
+            
+            # Set legend title to plot type
+            legend_title_map = {
+                'FP': 'False Positives',
+                'FNL': 'False Negatives (Low)',
+                'FNM': 'False Negatives (Medium)',
+                'FNH': 'False Negatives (High)',
+                'IV': 'Invalid PC'
+            }
+            legend_title = legend_title_map.get(plotType, plotType)
+            legend.set_title(legend_title, prop={'size': 'small', 'weight': 'bold'})
+            
+            # Adjust figure size to match legend width
+            fig.tight_layout()
+            fig.subplots_adjust(bottom=0.25)  # Add more space at bottom for legend
+        
+        # Save plot with informative name
+        if save_path:
+            if num_plots > 1:
+                # Insert group number before file extension
+                base, ext = os.path.splitext(save_path)
+                fileName = f"{base}_group{plot_idx+1}{ext}"
+            else:
+                fileName = save_path
+        else:
+            if num_plots > 1:
+                fileName = f'falseDetection_{plotType}_{rate:.2f}_{width}_{avgRate:.2f}_{th:.2f}_group{plot_idx+1}.png'
+            else:
+                fileName = f'falseDetection_{plotType}_{rate:.2f}_{width}_{avgRate:.2f}_{th:.2f}.png'
+        
+        # Use bbox_inches='tight' to ensure all elements are included without cropping
+        plt.savefig(fileName, dpi=120, bbox_inches='tight')
+        logger.info(f"Saved plot to {fileName}")
+    
+    # Save metrics to CSV file
+    if curves_metrics:
+        # Generate CSV filename based on plot type
+        if save_path:
+            # Use save_path to derive CSV name
+            base, _ = os.path.splitext(save_path)
+            csv_filename = f"{base}_metrics.csv"
+        else:
+            csv_filename = f'falseDetection_{plotType}_{rate:.2f}_{width}_{avgRate:.2f}_{th:.2f}_metrics.csv'
+        
+        # Convert metrics to DataFrame and save to CSV
+        metrics_df = pd.DataFrame(curves_metrics)
+        metrics_df.to_csv(csv_filename, index=False)
+        logger.info(f"Saved metrics to {csv_filename}")
+    
+    return all_figures
+
+def optimizeParameters(args):
+    """
+    Main function to handle parameter optimization
+    
+    Args:
+        args: Command line arguments
+    """
+    logger.info("======== Start ADF parameters optimization ========")
+    
+    # Parse parameter bounds
+    bounds_parts = args.bounds.split('|')
+    if len(bounds_parts) != 5:
+        logger.error(f"Invalid bounds format: {args.bounds}")
+        return
+        
+    param_bounds = []
+    param_names = ['startPt', 'rateTh', 'width_LB', 'avgRate_LB', 'threshold']
+    
+    for i, part in enumerate(bounds_parts):
+        try:
+            min_val, max_val = map(float, part.split(','))
+            param_bounds.append((min_val, max_val))
+        except ValueError:
+            logger.error(f"Invalid bound format for {param_names[i]}: {part}")
+            return
+    
+    # Load data
+    posTests, negTests, outliers = testsGrouping(args.testlog)
+    negCurves, pcNTC, neg_missing = NTCMetric(negTests, args.data)
+    posCurvesL, posCurvesM, posCurvesH, pcPOS, pos_missing = POSMetric(posTests, args.data)
+    
+    # Combine data
+    posCurves = [posCurvesL, posCurvesM, posCurvesH]
     pcCurves = pcNTC + pcPOS
     
-    fpCnt, fn100Cnt, fn10Cnt, fn1Cnt, ivCnt, fdList = curvesMetric(posCurves, negCurves, pcCurves, paras)
-    with open('falseDetectionList.csv', 'w') as f:
-        writer = csv.writer(f)
-        writer.writerows(fdList)
-    plotFalseDetectionCurves(fdList, plotType, paras)
-
-def plotFalseDetectionCurves(fdList, plotType, paras):
-    rate, width, avgRate, th = paras[1], paras[2], paras[3], paras[4]
-    plt.style.use('seaborn')
-
-    plt.rc('axes', linewidth=2)
-    font = {'weight' : 'bold',
-    'size'   : 21}
-    plt.rc('font', **font)
-    plt.figure(num=None, figsize=(24, 12), dpi=40)
-
-    plt.xlabel('Time (mins)', fontsize = 19, fontweight = 'bold')
-    plt.ylabel('Signal (mvs)', fontsize = 19, fontweight = 'bold')
-    plt.title(f'False Detection Curves for {plotType} with rateTh[{rate}], widthLb[{width}], avgRateLb[{avgRate}], Th[{th}]', fontsize = 19, fontweight = 'bold')
+    # Log summary of PC curve collection
+    total_missing = len(neg_missing) + len(pos_missing)
+    if total_missing > 0:
+        logger.warning(f"Total of {total_missing} PC curves missing ({len(pos_missing)} from positive tests, {len(neg_missing)} from negative tests)")
+        logger.info(f"Number of PC curves: {len(pcCurves)}")
     
-
-    for df in fdList:
-        if df[0] not in plotType:
-            continue
-        testId = df[1]
-        ch = df[2]
-        signal = df[3]
-        xSeries = np.arange(0, len(signal), 1)
-        xSeries = np.interp(xSeries, (xSeries.min(), xSeries.max()), (0, 30))
-        plt.plot(xSeries, signal, label = testId + '_' + ch)
+    # Log parameter bounds
+    logger.info(f"### startPt|rateTh|width_LB|avgRate_LB|threshold: {args.bounds} ###")
     
-    plt.grid(True)
-    plt.axis([0,30, 0, 500])
-    plt.legend(ncol = 2, loc='upper right')
-    fileName = f'falseDetection_{plotType}_rateTh_{rate}_widthLb_{width}_avgRateLb_{avgRate}_th_{th}.png'
-    plt.savefig(fileName)
+    # Optimize for FP_FN (false positives and false negatives)
+    fp_fn_best_method = None
+    fp_fn_best_params = None
+    fp_fn_best_error = float('inf')
     
-if __name__ == '__main__':
-
-    # Testlog filename and data path
-    TESTLOGFILE = Path('PD_testlog.csv')
-    DATAPATH = Path('./PD_training/')
-
-    msg = "Please specify the parameter (startPt, rateTh, width_LB, avgRate_LB, threshold) to sweep"
-
-    # Initialize parser
-    parser = argparse.ArgumentParser(description=msg)
+    logger.info("Optimizing parameters for FP_FN...")
     
-    # Adding optional argument
-    parser.add_argument("-p", help = "Parameter to sweep")
-    parser.add_argument("-st", help = "start of parameter")
-    parser.add_argument("-e", help = "end of parameter")
-    parser.add_argument("-s", help = "Step of parameter")
+    # For simplicity, we'll use a simple grid search over each parameter
+    # In a real system, we might use more advanced techniques like Bayesian optimization
+    for i, param_name in enumerate(param_names):
+        min_val, max_val = param_bounds[i]
+        # Calculate step size (10 steps in range)
+        step = (max_val - min_val) / 10
+        if step <= 0:
+            step = 1  # Default if bounds are equal
+            
+        params, results = paraSweep(param_name, (min_val, max_val), step, args.testlog, args.data)
+        
+        # Compare with current best
+        if results:
+            total_errors = sum(val[0] for val in results.values())
+            if total_errors < fp_fn_best_error:
+                fp_fn_best_error = total_errors
+                fp_fn_best_params = params
+                fp_fn_best_method = f"Grid search on {param_name}"
     
+    logger.info(f"Best method for fp_fn: {fp_fn_best_method}")
+    logger.info("======== FP_FN Optimization Results ========")
+    logger.info("Optimized parameters for fp_fn:")
+    logger.info(f"startPt: {fp_fn_best_params[0]:.2f}")
+    logger.info(f"rateTh: {fp_fn_best_params[1]:.2f}")
+    logger.info(f"width_LB: {int(fp_fn_best_params[2])}")
+    logger.info(f"avgRate_LB: {fp_fn_best_params[3]:.2f}")
+    logger.info(f"threshold: {fp_fn_best_params[4]:.2f}")
+    logger.info(f"Minimum false curves count: {fp_fn_best_error:.4f}")
+    logger.info("======== End of FP_FN Optimization ========")
     
-    # Read arguments from command line
-    args = parser.parse_args()
+    # Run baseline statistics
+    logger.info("======== Baseline Statistics ========")
+    
+    # Negative curves baseline
+    neg_max_rates = [labelSteps(curve[-1])[1] for curve in negCurves]
+    neg_max_deltas = [labelSteps(curve[-1])[5] for curve in negCurves]
+    neg_avg_rates = [labelSteps(curve[-1])[4] for curve in negCurves]
+    
+    logger.info("Negative Curves Baseline:")
+    logger.info(f"Average max_rate: {np.mean(neg_max_rates):.2f}")
+    logger.info(f"Average max_delta: {np.mean(neg_max_deltas):.2f}")
+    logger.info(f"Average avgRate_LB: {np.mean(neg_avg_rates):.2f}")
+    
+    # PC curves baseline
+    pc_max_rates = [labelSteps(curve[-1])[1] for curve in pcCurves]
+    pc_max_deltas = [labelSteps(curve[-1])[5] for curve in pcCurves]
+    pc_avg_rates = [labelSteps(curve[-1])[4] for curve in pcCurves]
+    
+    logger.info("PC Curves Baseline:")
+    logger.info(f"Average max_rate: {np.mean(pc_max_rates):.2f}")
+    logger.info(f"Average max_delta: {np.mean(pc_max_deltas):.2f}")
+    logger.info(f"Average avgRate_LB: {np.mean(pc_avg_rates):.2f}")
+    
+    # Low positive curves baseline
+    low_max_rates = [labelSteps(curve[-1])[1] for curve in posCurvesL]
+    low_max_deltas = [labelSteps(curve[-1])[5] for curve in posCurvesL]
+    low_avg_rates = [labelSteps(curve[-1])[4] for curve in posCurvesL]
+    
+    logger.info("Low Positive Curves Baseline:")
+    logger.info(f"Average max_rate: {np.mean(low_max_rates):.2f}")
+    logger.info(f"Average max_delta: {np.mean(low_max_deltas):.2f}")
+    logger.info(f"Average avgRate_LB: {np.mean(low_avg_rates):.2f}")
+    logger.info("======== End of Baseline Statistics ========")
+    
+    # Optimize for IV count
+    iv_best_method = None
+    iv_best_params = None
+    iv_best_count = float('inf')
+    
+    logger.info("Optimizing for PC validity...")
+    
+    # Specifically focus on threshold parameter for IV optimization
+    min_val, max_val = param_bounds[4]  # threshold bounds
+    step = (max_val - min_val) / 20  # finer steps for threshold
+    
+    # Start from FP_FN optimal parameters and tweak threshold
+    params = fp_fn_best_params.copy()
+    
+    for threshold in np.arange(min_val, max_val, step):
+        params[4] = round(threshold, 2)
+        _, _, _, _, ivCnt, _ = curvesMetric(posCurves, negCurves, pcCurves, params)
+        
+        if ivCnt < iv_best_count:
+            iv_best_count = ivCnt
+            iv_best_params = params.copy()
+            iv_best_method = "Threshold adjustment"
+            logger.info(f"New best result - ivCnt: {ivCnt}, threshold: {threshold:.2f}")
+    
+    logger.info(f"Best method for ivCnt: {iv_best_method}")
+    logger.info("======== PC Optimization Results ========")
+    logger.info(f"startPt: {iv_best_params[0]:.2f}")
+    logger.info(f"rateTh: {iv_best_params[1]:.2f}")
+    logger.info(f"width_LB: {int(iv_best_params[2])}")
+    logger.info(f"avgRate_LB: {iv_best_params[3]:.2f}")
+    logger.info(f"threshold: {iv_best_params[4]:.2f}")
+    logger.info(f"Invalid PC count: {iv_best_count}")
+    logger.info("======== End of PC Optimization Results ========")
+    
+    # Generate detailed false detection list for FP_FN optimal parameters
+    fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, fdList = curvesMetric(posCurves, negCurves, pcCurves, fp_fn_best_params)
+    
+    logger.info(f"====== False Detection Details for FP_FN - Method: {fp_fn_best_method} ======")
+    logger.info(f"Parameters: startPt={fp_fn_best_params[0]:.2f}, rateTh={fp_fn_best_params[1]:.2f}, "
+               f"width_LB={int(fp_fn_best_params[2])}, avgRate_LB={fp_fn_best_params[3]:.2f}, "
+               f"threshold={fp_fn_best_params[4]:.2f}")
+    
+    for fd in fdList:
+        logger.info(f"Type: {fd[0]}, TestID: {fd[1]}, Channel: {fd[2]}")
+    
+    logger.info(f"Total false detections: {len(fdList)}")
+    logger.info("============================================================")
+    
+    # Generate detailed false detection list for IV optimal parameters
+    fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, fdList = curvesMetric(posCurves, negCurves, pcCurves, iv_best_params)
+    
+    logger.info(f"====== False Detection Details for PC - Method: {iv_best_method} ======")
+    logger.info(f"Parameters: startPt={iv_best_params[0]:.2f}, rateTh={iv_best_params[1]:.2f}, "
+               f"width_LB={int(iv_best_params[2])}, avgRate_LB={iv_best_params[3]:.2f}, "
+               f"threshold={iv_best_params[4]:.2f}")
+    
+    for fd in fdList:
+        logger.info(f"Type: {fd[0]}, TestID: {fd[1]}, Channel: {fd[2]}")
+    
+    logger.info(f"Total false detections: {len(fdList)}")
+    logger.info("============================================================")
+    
+    # Save false detection list to CSV if requested
+    if args.output:
+        with open(args.output, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Type', 'TestID', 'Channel'])
+            for fd in fdList:
+                writer.writerow([fd[0], fd[1], fd[2]])
+        logger.info(f"Saved false detection list to {args.output}")
+    
+    # Plot false detection curves if requested
+    if args.plot:
+        for plot_type in ['FP', 'FNL', 'FNM', 'FNH', 'IV']:
+            plotFalseDetectionCurves(fdList, plot_type, iv_best_params)
+            
+    return fp_fn_best_params, iv_best_params
 
-    availablePara = set(['startPt', 'rateTh', 'width_LB', 'avgRate_LB', 'threshold'])
-    if args.p in availablePara:
-        paraSweep(args.p, [int(args.st), int(args.e)], int(args.s), TESTLOGFILE, DATAPATH)
-    else:
-        print(msg)
-    
-    # paraSweep('threshold', [40, 110], 10)
-    # getFalseDetectionList([75, 0.5, 15, 0.9, 80], 'IV')
-
+# Main entry point
+if __name__ == "__main__":
+    try:
+        optimizeParameters(args)
+    except Exception as e:
+        logger.error(f"Error during execution: {str(e)}", exc_info=True)
+        raise
 
 
 

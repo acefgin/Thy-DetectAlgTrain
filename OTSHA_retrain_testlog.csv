@@ -1,0 +1,284 @@
+﻿Sample ID,Run UID,Overall Result,Expected Result,Result review comments,Notes
+DI_3,06750770-48,Negative,Negative,,Fremont Cut
+14.GF.05,06750770-49,Positive,Negative,,Fremont Cut
+14.DD.61.NTC,06750770-50,Negative,Negative,,Issaquah Creek Hatchery
+14.DD.01.S3,06750770-51,Negative,Positive,,Issaquah Creek Hatchery
+14.DD.06.S3,06750770-52,Negative,Positive,,Issaquah Creek Hatchery
+14.DD.64.S4,06750770-53,Negative,Positive,,Issaquah Creek Hatchery
+14.DD.11.UND,06750770-54,Negative,Positive,,Issaquah Creek Hatchery- Troubleshooting
+14.DD.11.1_10,06750770-55,Invalid,Positive,,Issaquah Creek Hatchery- Troubleshooting
+14.DD.11.1_5,06750770-56,Invalid,Positive,,Issaquah Creek Hatchery- Troubleshooting
+14.DD.7.1_30,06750770-57,Positive,Positive,,Issaquah Creek Hatchery- Troubleshooting
+14.DD.71.1_45,06750770-58,Positive,Positive,,Issaquah Creek Hatchery- Troubleshooting
+14.DD.14.1_10.2,06750770-60,Invalid,Positive,,Issaquah Creek Hatchery- Troubleshooting
+14.MB.93.S1,06750770-61,Positive,Positive,,Soos Creek Hatchery - In Lab
+14.MB.106.S2,06750770-62,Negative,Positive,,Soos Creek Hatchery - In Lab
+14.MB.48.S3,06750770-63,Positive,Positive,,Soos Creek Hatchery - In Lab
+14.MB.35.S5,06750770-64,Positive,Positive,,Soos Creek Hatchery - In Lab
+14.GF.190.S1,06750770-65,Invalid,Negative,,Carr Creek
+14.EN.202.S1.GL,06750770-66,Negative,Negative,,Green Lake
+14.EN.210.S1.GL,06750770-67,Negative,Negative,,Green Lake
+14.EN.217.S1.GL,06750770-68,Positive,Negative,,Green Lake
+14.EN.223.S1.GL,06750770-69,Negative,Negative,,Green Lake
+14.EN.168.S5,06750770-70,Positive,Positive,,Kendall Creek Hatchery
+14.GF.112.S1,06750770-71,Negative,Positive,,Kendall Creek Hatchery
+14.EN.173.S6,06750770-72,Positive,Positive,,Kendall Creek Hatchery
+14.CF.156.S3,06750770-73,Positive,Positive,,Kendall Creek Hatchery
+14.EN.119.S7,06750770-74,Positive,Positive,,Kendall Creek Hatchery
+14.EN.154.S3,06750770-75,Positive,Positive,,Kendall Creek Hatchery
+14.EN.165.S4,06750770-76,Positive,Positive,,Kendall Creek Hatchery
+14.EN.177.S6,06750770-77,Positive,Positive,,Kendall Creek Hatchery
+14.GF.126.S4,06750770-78,Positive,Positive,,Soos Creek Hatchery
+14.EN.210.S10,06750770-79,Positive,Positive,,Soos Creek Hatchery
+14.EN.194.S7,06750770-80,Positive,Negative,,Soos Creek Hatchery - In Lab
+14.EN.201.S7,06750770-81,Negative,Negative,,Soos Creek Hatchery - In Lab
+14.EN.211.S10,06750770-83,Positive,Positive,,Soos Creek Hatchery - In Lab
+14.EN.219.S10,06750770-84,Positive,Positive,,Soos Creek Hatchery - In Lab
+14.EN.233.S9,06750770-85,Positive,Positive,,Soos Creek Hatchery - In Lab
+14.EN.240.S9,06750770-86,Positive,Positive,,Soos Creek Hatchery - In Lab
+14.EN.254.S3,06750770-87,Positive,Positive,,Soos Creek Hatchery - In Lab
+14.MB.66.S4,06750770-90,Positive,Positive,,Issaquah Creek Hatchery
+FCFD_FCSRB1_GF,06787872-27,Positive,Negative,,Fremont Cut
+FCFB_SRB3_GF,06787872-28,Negative,Negative,,Fremont Cut
+FCFD_SRB5_GF,06787872-29,Positive,Negative,,Fremont Cut
+12.GF.80.S1,06787872-30,Invalid,Negative,,Issaquah Creek Hatchery
+12.GF.43.S1,06787872-31,Negative,Negative,,Issaquah Creek Hatchery
+12.ST.72.S4,06787872-32,Positive,Positive,,Issaquah Creek Hatchery
+12.EN.82.S1,06787872-33,Negative,Positive,,Soos Creek Hatchery
+12.EN.90.S1,06787872-34,Positive,Positive,,Soos Creek Hatchery
+12.GF.186.NTC,06787872-36,Negative,Negative,,Carr Creek
+12.GF.194.S1,06787872-37,Negative,Negative,,Carr Creek
+12.GF.197.S1,06787872-38,Invalid,Negative,,Carr Creek
+12.EN.205.S1.GL,06787872-39,Negative,Negative,,Green Lake
+12.EN.213.S1.GL,06787872-40,Negative,Negative,,Green Lake
+12.EN.221.S1.GL,06787872-41,Negative,Negative,,Green Lake
+12.EN.167.S5,06787872-42,Positive,Positive,,Kendall Creek Hatchery
+12.GF.153.S3,06787872-44,Positive,Positive,,Kendall Creek Hatchery
+12.EN.114.S2,06787872-45,Positive,Positive,,Kendall Creek Hatchery
+12.EN.149.S6,06787872-46,Positive,Positive,,Kendall Creek Hatchery
+12.EN.162.S4,06787872-47,Positive,Positive,,Kendall Creek Hatchery
+12.EN.175.S6,06787872-49,Positive,Positive,,Kendall Creek Hatchery
+12.CF.186.NTC,06787872-50,Positive,Negative,,Soos Creek Hatchery
+12.GF.247.S3,06787872-51,Positive,Positive,,Soos Creek Hatchery
+012.DF.207.S11,06787872-52,Positive,Positive,,Soos Creek Hatchery
+12.EN.192.S7,06787872-53,Negative,Negative,,Soos Creek Hatchery - In Lab
+12.EN.199.S7,06787872-54,Negative,Negative,,Soos Creek Hatchery - In Lab
+12.EN.208.S11,06787872-55,Positive,Positive,,Soos Creek Hatchery - In Lab
+12.EN.217.S10,06787872-56,Positive,Positive,,Soos Creek Hatchery - In Lab
+12.EN.224.S10,06787872-57,Positive,Positive,,Soos Creek Hatchery - In Lab
+12.EN.238.S9,06787872-58,Positive,Positive,,Soos Creek Hatchery - In Lab
+12.EN.245.S9,06787872-59,Positive,Positive,,Soos Creek Hatchery - In Lab
+12.EN.250.S3,06787872-60,Positive,Positive,,Soos Creek Hatchery - In Lab
+12.MB.44.S1,06787872-61,Negative,Negative,,Issaquah Creek Hatchery
+DI_4,06787899-17,Negative,Negative,,Fremont Cut
+11.GF.01,06787899-19,Invalid,Negative,,Fremont Cut
+11.GF.06,06787899-20,Negative,Negative,,Fremont Cut
+11.DD.04.S3,06787899-21,Negative,Positive,,Issaquah Creek Hatchery
+11.DD.10.S3,06787899-22,Negative,Positive,,Issaquah Creek Hatchery
+11.DD.65.NTC,06787899-23,Positive,Negative,,Soos Creek Hatchery
+11.DD.101.S2,06787899-24,Positive,Positive,,Soos Creek Hatchery
+11.MB.102.S2,06787899-25,Positive,Positive,,Soos Creek Hatchery
+11.MB.89.S1,06787899-26,Positive,Positive,,Soos Creek Hatchery - In Lab
+11.MB.104.S2,06787899-27,Positive,Positive,,Soos Creek Hatchery - In Lab
+11.MB.39.S3,06787899-28,Positive,Positive,,Soos Creek Hatchery - In Lab
+11.MB.97.S8,06787899-29,Invalid,Positive,,Soos Creek Hatchery - In Lab
+11.GF.193.S1,06787899-30,Positive,Negative,,Carr Creek
+11.EN.204.S1.GL,06787899-31,Positive,Negative,,Green Lake
+11.EN.212.S1.GL,06787899-32,Positive,Negative,,Green Lake
+11.EN.219.S1.GL,06787899-33,Positive,Negative,,Green Lake
+11.GF.166.NTC,06787899-34,Positive,Negative,,Kendall Creek Hatchery
+11.GF.151.S6,06787899-35,Positive,Positive,,Kendall Creek Hatchery
+11.GF.181.S1,06787899-36,Positive,Positive,,Kendall Creek Hatchery
+11.CF.164.S4,06787899-37,Positive,Positive,,Kendall Creek Hatchery
+11.CF.183.S1,06787899-40,Positive,Positive,,Kendall Creek Hatchery
+11.EN.118.S2,06787899-41,Positive,Positive,,Kendall Creek Hatchery
+11.EN.150.S6,06787899-42,Positive,Positive,,Kendall Creek Hatchery
+11.EN.163.S4,06787899-43,Positive,Positive,,Kendall Creek Hatchery
+11.EN.176.S6,06787899-44,Positive,Positive,,Kendall Creek Hatchery
+11.EN.185.S1,06787899-45,Positive,Positive,,Kendall Creek Hatchery
+11.GF.188.S7,06787899-46,Negative,Negative,,Soos Creek Hatchery
+11.EN.191.S7,06787899-47,Negative,Negative,,Soos Creek Hatchery - In Lab
+11.EN.198.S7,06787899-48,Negative,Negative,,Soos Creek Hatchery - In Lab
+11.EN.205.S9,06787899-49,Positive,Positive,,Soos Creek Hatchery - In Lab
+11.EN.216.S10,06787899-50,Positive,Positive,,Soos Creek Hatchery - In Lab
+11.EN.223.S10,06787899-51,Positive,Positive,,Soos Creek Hatchery - In Lab
+11.EN.237.S9,06787899-52,Positive,Positive,,Soos Creek Hatchery - In Lab
+11.EN.244.S9,06787899-53,Positive,Positive,,Soos Creek Hatchery - In Lab
+11.EN.249.S3,06787899-54,Positive,Positive,,Soos Creek Hatchery - In Lab
+FCFD1,06787900-57,Negative,Negative,,Fremont Cut
+FCFD3,06787900-58,Negative,Negative,,Fremont Cut
+FCFD5,06787900-59,Negative,Negative,,Fremont Cut
+FC5,06787900-60,Negative,Negative,,Fremont Cut
+FCFD10,06787900-61,Negative,Negative,,Fremont Cut
+FCFD4_R,06787900-62,Negative,Negative,,Fremont Cut
+01.GF.63.NTC,06787900-65,Negative,Negative,,Issaquah Creek Hatchery
+01.GF.76.S1,06787900-66,Negative,Negative,,Issaquah Creek Hatchery
+01.DD.75.S2,06787900-72,Positive,Positive,,Soos Creek Hatchery
+01.MB.19.S3,06787900-73,Positive,Positive,,Soos Creek Hatchery
+01.EN.54.S3,06787900-74,Negative,Positive,,Soos Creek Hatchery
+01.MB.83.S1,06787900-75,Positive,Positive,,Soos Creek Hatchery - In Lab
+01.MB.74.S2,06787900-76,Positive,Positive,,Soos Creek Hatchery - In Lab
+01.MB.32.S3,06787900-77,Positive,Positive,,Soos Creek Hatchery - In Lab
+01.MB.50.S8,06787900-78,Positive,Positive,,Soos Creek Hatchery - In Lab
+DI_1,06787906-75,Negative,Negative,,Fremont Cut
+4.GF.02,06787906-76,Positive,Negative,,Fremont Cut
+04.DD.62.NTC,06787906-77,Negative,Negative,,Issaquah Creek Hatchery
+04.EN.21.S2,06787906-78,Invalid,Positive,,Issaquah Creek Hatchery
+04.EN.24.S2,06787906-79,Negative,Positive,,Issaquah Creek Hatchery
+04.GF.18.S3,06787906-82,Positive,Positive,,Soos Creek Hatchery
+04.DD.110.S2,06787906-83,Negative,Positive,,Soos Creek Hatchery
+04.MB.85.S1,06787906-84,Positive,Positive,,Soos Creek Hatchery - In Lab
+04.MB.78.S2,06787906-85,Positive,Positive,,Soos Creek Hatchery - In Lab
+04.MB.37.S3,06787906-86,Positive,Positive,,Soos Creek Hatchery - In Lab
+04.MB.51.S8,06787906-87,Positive,Positive,,Soos Creek Hatchery - In Lab
+04.GF.191.S1,06787906-88,Invalid,Negative,,Carr Creek
+04.EN.203.S1.GL,06787906-89,Positive,Negative,,Green Lake
+04.EN.211.S1.GL,06787906-90,Negative,Negative,,Green Lake
+04.EN.220.S1.GL,06787906-91,Negative,Negative,,Green Lake
+04.GF.98.S2,06787906-92,Positive,Positive,,Kendall Creek Hatchery
+04.GF.111.S1,06787906-93,Positive,Positive,,Kendall Creek Hatchery
+04.EN.122.S7,06787906-94,Positive,Positive,,Kendall Creek Hatchery
+04.EN.158.S3,06787906-95,Positive,Positive,,Kendall Creek Hatchery
+04.EN.171.S5,06787906-96,Positive,Positive,,Kendall Creek Hatchery
+04.EN.182.S1,06787906-97,Positive,Positive,,Kendall Creek Hatchery
+04.GF.187.S7,06787906-98,Negative,Negative,,Soos Creek Hatchery
+04.MW.231.S3,06787906-99,Positive,Positive,,Soos Creek Hatchery
+04.EN.189.S7,06787906-100,Positive,Negative,,Soos Creek Hatchery - In Lab
+04.EN.196.S7,06787906-101,Negative,Negative,,Soos Creek Hatchery - In Lab
+04.EN.203.S9,06787906-102,Positive,Positive,,Soos Creek Hatchery - In Lab
+04.EN.214.S10,06787906-104,Negative,Positive,,Soos Creek Hatchery - In Lab
+04.EN.221.S10,06787906-105,Positive,Positive,,Soos Creek Hatchery - In Lab
+04.EN.235.S9,06787906-106,Positive,Positive,,Soos Creek Hatchery - In Lab
+04.EN.242.S9,06787906-107,Positive,Positive,,Soos Creek Hatchery - In Lab
+04.EN.144.S11,06787906-108,Positive,Positive,,Soos Creek Hatchery - In Lab
+4.MB.27.S2,06787906-109,Positive,Positive,,Issaquah Creek Hatchery
+04.MB.70.S4,06787906-112,Positive,Positive,Graph says S1,Issaquah Creek Hatchery
+DI_2,06787907-21,Positive,Negative,,Fremont Cut
+17.GF.03,06787907-22,Positive,Negative,,Fremont Cut
+17.EN.22.S2,06787907-23,Invalid,Positive,,Issaquah Creek Hatchery
+17.EN.26.S2,06787907-24,Negative,Positive,,Issaquah Creek Hatchery
+17.EN.84.S1,06787907-27,Positive,Positive,,Soos Creek Hatchery
+17.EN.92.S1,06787907-28,Positive,Positive,,Soos Creek Hatchery
+17.MB.94.S6,06787907-29,Positive,Positive,,Soos Creek Hatchery - In Lab
+17.MB.33.S5,06787907-30,Positive,Positive,,Soos Creek Hatchery - In Lab
+17.MB.55.S3,06787907-31,Positive,Positive,,Soos Creek Hatchery - In Lab
+17.MB.99.S7,06787907-32,Positive,Negative,,Soos Creek Hatchery - In Lab
+17.GF.189.S1,06787907-33,Invalid,Negative,,Carr Creek
+17.GF.200.S1,06787907-34,Positive,Negative,,Carr Creek
+17.EN.201.NTC,06787907-35,Positive,Negative,,Green Lake
+17.EN.209.S1.GL,06787907-36,Positive,Negative,,Green Lake
+17.EN.218.S1.GL,06787907-37,Positive,Negative,,Green Lake
+17.CF.96.S2,06787907-38,Positive,Positive,,Kendall Creek Hatchery
+17.GF.152.S6,06787907-39,Positive,Positive,,Kendall Creek Hatchery
+17.CF.180.S6,06787907-41,Positive,Positive,,Kendall Creek Hatchery
+17.CF.115.S2,06787907-42,Positive,Positive,,Kendall Creek Hatchery
+17.EN.123.S7,06787907-43,Positive,Positive,,Kendall Creek Hatchery
+17.EN.159.S4,06787907-45,Positive,Positive,,Kendall Creek Hatchery
+17.EN.172.S5,06787907-46,Positive,Positive,,Kendall Creek Hatchery
+17.EN.184.S1,06787907-47,Negative,Positive,,Kendall Creek Hatchery
+17.GF.255.NTC,06787907-48,Positive,Negative,,Soos Creek Hatchery
+17.EN.212.S10,06787907-49,Positive,Positive,,Soos Creek Hatchery
+17.EN.195.S7,06787907-50,Negative,Negative,,Soos Creek Hatchery - In Lab
+17.EN.202.S7,06787907-51,Positive,Negative,,Soos Creek Hatchery - In Lab
+17.EN.213.S10,06787907-52,Positive,Positive,,Soos Creek Hatchery - In Lab
+17.EN.220.S10,06787907-53,Positive,Positive,,Soos Creek Hatchery - In Lab
+17.EN.234.S9,06787907-54,Positive,Positive,,Soos Creek Hatchery - In Lab
+17.EN.241.S9,06787907-55,Positive,Positive,,Soos Creek Hatchery - In Lab
+17.EN.143.S11,06787907-56,Positive,Positive,,Soos Creek Hatchery - In Lab
+FCFD_FCSRB2_GF,06899992-29,Negative,Negative,,Fremont Cut
+FCFD_SRB4_GF,06899992-30,Negative,Negative,,Fremont Cut
+13.GF.60.S1,06899992-31,Invalid,Negative,,Issaquah Creek Hatchery
+13.GF.42.S1,06899992-32,Negative,Negative,,Issaquah Creek Hatchery
+13.GF.56.S3,06899992-33,Invalid,Positive,,Soos Creek Hatchery
+13.MB.40.S3,06899992-34,Invalid,Positive,,Soos Creek Hatchery
+13.MB.91.S1,06899992-35,Positive,Positive,,Soos Creek Hatchery - In Lab
+13.MB.105.S2,06899992-36,Positive,Positive,,Soos Creek Hatchery - In Lab
+13.MB.47.S3,06899992-37,Positive,Positive,,Soos Creek Hatchery - In Lab
+13.MB.34.S5,06899992-38,Positive,Positive,,Soos Creek Hatchery - In Lab
+13.GF.192.S1,06899992-39,Invalid,Negative,,Carr Creek
+13.EN.207.S1.GL,06899992-40,Positive,Negative,,Green Lake
+13.EN.215.S1.GL,06899992-41,Positive,Negative,,Green Lake
+13.EN.225.S1.GL,06899992-42,Negative,Negative,,Green Lake
+13.GF.95.NTC,06899992-43,Negative,Negative,,Kendall Creek Hatchery
+13.GF.100.S4,06899992-44,Positive,Positive,,Kendall Creek Hatchery
+13.GF.117.S7,06899992-45,Positive,Positive,,Kendall Creek Hatchery
+13.EN.113.S2,06899992-46,Positive,Positive,,Kendall Creek Hatchery
+13.EN.124.S7,06899992-47,Positive,Positive,,Kendall Creek Hatchery
+13.EN.161.S4,06899992-48,Negative,Positive,,Kendall Creek Hatchery
+13.EN.174.S6,06899992-49,Positive,Positive,,Kendall Creek Hatchery
+13.GF.129.S4,06899992-50,Positive,Positive,,Soos Creek Hatchery
+13.MW.232.S3,06899992-51,Positive,Positive,,Soos Creek Hatchery
+13.GF.WLF.S4,06899992-52,Invalid,Positive,,Soos Creek Hatchery
+13.EN.193.S7,06899992-53,Negative,Negative,,Soos Creek Hatchery - In Lab
+13.EN.200.S7,06899992-54,Negative,Negative,,Soos Creek Hatchery - In Lab
+13.EN.209.S11,06899992-56,Positive,Positive,,Soos Creek Hatchery - In Lab
+13.EN.218.S10,06899992-57,Positive,Positive,,Soos Creek Hatchery - In Lab
+13.EN.225.S10,06899992-58,Invalid,Positive,,Soos Creek Hatchery - In Lab
+13.EN.239.S9,06899992-59,Positive,Positive,,Soos Creek Hatchery - In Lab
+13.EN.253.S3,06899992-60,Positive,Positive,,Soos Creek Hatchery - In Lab
+13.EN.252.S3,06899992-61,Positive,Positive,,Soos Creek Hatchery - In Lab
+FCFD2,06900002-41,Invalid,Negative,,Fremont Cut
+FCFD4,06900002-42,Invalid,Negative,,Fremont Cut
+FCFD6,06900002-43,Negative,Negative,,Fremont Cut
+FCFD8,06900002-44,Negative,Negative,,Fremont Cut
+FCFD9,06900002-45,Negative,Negative,,Fremont Cut
+FCFD2_R,06900002-46,Negative,Negative,,Fremont Cut
+06.EN.23.S2,06900002-50,Invalid,Positive,,Issaquah Creek Hatchery
+06.EN.25.S2,06900002-51,Invalid,Positive,,Issaquah Creek Hatchery
+06.DD.17.NTC,06900002-58,Positive,Negative,,Soos Creek Hatchery
+06.MB.31.S5,06900002-59,Positive,Positive,,Soos Creek Hatchery
+06.DD.108.S2,06900002-60,Negative,Positive,,Soos Creek Hatchery
+06.MB.88.S1,06900002-61,Positive,Positive,,Soos Creek Hatchery - In Lab
+06.MB.103.S2,06900002-62,Positive,Positive,,Soos Creek Hatchery - In Lab
+06.MB.38.S3,06900002-64,Invalid,Positive,,Soos Creek Hatchery - In Lab - DevMode
+06.MB.53.S8,06900002-65,Positive,Positive,,Soos Creek Hatchery - In Lab
+06.GF7.188.S1,06900002-66,Invalid,Negative,,Carr Creek
+06.GF.196.S1,06900002-67,Negative,Negative,,Carr Creek
+06.GF.199.S1,06900002-68,Negative,Negative,,Carr Creek
+06.EN.206.S1.GL,06900002-69,Negative,Negative,,Green Lake
+06.EN.214.S1.GL,06900002-70,Positive,Negative,,Green Lake
+06.EN.222.S1.GL,06900002-71,Negative,Negative,,Green Lake
+06.GF.146.NTC,06900002-72,Negative,Negative,,Kendall Creek Hatchery
+06.GF.109.S4,06900002-73,Positive,Positive,,Kendall Creek Hatchery
+06.GF.116.S7,06900002-74,Positive,Positive,,Kendall Creek Hatchery
+06.EN.120.S7,06900002-75,Positive,Positive,,Kendall Creek Hatchery
+06.EN.160.S4,06900002-76,Negative,Positive,,Kendall Creek Hatchery
+06.EN.169.S5,06900002-77,Positive,Positive,,Kendall Creek Hatchery
+06.EN.178.S6,06900002-78,Positive,Positive,,Kendall Creek Hatchery
+06.EN.127.NTC,06900002-79,Positive,Negative,,Soos Creek Hatchery
+06.GF.246.S3,06900002-80,Positive,Positive,,Soos Creek Hatchery
+06.DF.206.S11,06900002-81,Positive,Positive,,Soos Creek Hatchery
+06.EN.190.S7,06900002-82,Negative,Negative,,Soos Creek Hatchery - In Lab
+06.EN.197.S7,06900002-83,Negative,Negative,,Soos Creek Hatchery - In Lab
+06.EN.204.S9,06900002-84,Positive,Positive,,Soos Creek Hatchery - In Lab
+06.EN.215.S10,06900002-85,Positive,Positive,,Soos Creek Hatchery - In Lab
+06.EN.222.S10,06900002-87,Positive,Positive,,Soos Creek Hatchery - In Lab
+06.EN.236.S9,06900002-88,Positive,Positive,,Soos Creek Hatchery - In Lab
+06.EN.243.S9,06900002-90,Positive,Positive,,Soos Creek Hatchery - In Lab
+06.EN.145.S11,06900002-91,Positive,Positive,,Soos Creek Hatchery - In Lab
+6.MB.46.S1,06900002-92,Positive,Negative,,Issaquah Creek Hatchery
+06.MB.57.S1,06900002-94,Negative,Negative,,Issaquah Creek Hatchery
+DI_5,06900179-43,Positive,Negative,,Fremont Cut
+16.GF.04,06900179-44,Positive,Negative,,Fremont Cut
+16.DD.20.S3,06900179-45,Negative,Positive,,Issaquah Creek Hatchery
+16.BA.03.S3,06900179-46,Invalid,Positive,,Issaquah Creek Hatchery
+16.EA.16.S4,06900179-48,Positive,Positive,,Issaquah Creek Hatchery
+16.EN.81.NTC,06900179-49,Invalid,Negative,,Soos Creek Hatchery
+16.EN.86.S4,06900179-51,Positive,Positive,,Soos Creek Hatchery
+16.EN.36.S3,06900179-52,Positive,Positive,,Soos Creek Hatchery
+16.MB.52.S6,06900179-53,Negative,Positive,,Soos Creek Hatchery - In Lab
+16.MB.107.S2,06900179-54,Positive,Positive,,Soos Creek Hatchery - In Lab
+16.MB.87.S4,06900179-55,Positive,Positive,,Soos Creek Hatchery - In Lab
+16.MB.49.S7,06900179-57,Invalid,Negative,,Soos Creek Hatchery - In Lab
+16.GF.187.S1,06900179-58,Invalid,Negative,,Carr Creek
+16.GF.195.S1,06900179-59,Invalid,Negative,,Carr Creek
+16.GF.198.S1,06900179-60,Negative,Negative,,Carr Creek
+16.EN.208.S1.GL,06900179-61,Negative,Negative,,Green Lake
+16.EN.216.S1.GL,06900179-62,Positive,Negative,,Green Lake
+16.EN.224.S1.GL,06900179-63,Negative,Negative,,Green Lake
+16.CF.147.S3,06900179-64,Invalid,Positive,,Kendall Creek Hatchery
+16.CF.125.S7,06900179-65,Positive,Positive,,Kendall Creek Hatchery
+16.EN.121.S7,06900179-67,Positive,Positive,,Kendall Creek Hatchery
+16.EN.157.S3,06900179-69,Positive,Positive,,Kendall Creek Hatchery
+16.EN.170.S5,06900179-70,Positive,Positive,,Kendall Creek Hatchery
+16.EN.179.S6,06900179-72,Positive,Positive,,Kendall Creek Hatchery
