@@ -1,10 +1,14 @@
 import os
 import requests
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # ✏️ CONFIGURATION
-AIRTABLE_API_KEY = 'patU7WPdqAafxgaIz.3c314b7994bbad26c573cdcbdc8dfc63448ba92e87a7753c6e96a44d11e1f199'  # or bearer token
-BASE_ID = 'appdIO1tZxoyAvleh'
-TABLE_NAME = 'Chinook Project Test Results'
+AIRTABLE_API_KEY = os.getenv('AIRTABLE_API_KEY')
+BASE_ID = os.getenv('AIRTABLE_BASE_ID')
+TABLE_NAME = os.getenv('AIRTABLE_TABLE_NAME')
 ATTACHMENT_FIELD = 'RAW data attachment'
 DOWNLOAD_DIR = './downloads'
 

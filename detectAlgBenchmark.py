@@ -38,7 +38,7 @@ parser.add_argument('-d', '--data', type=str, default='./ADFtraining/',
                     help='Path to training data directory')
 parser.add_argument('-t', '--testlog', type=str, default='testlog.csv',
                     help='Path to test log file')
-parser.add_argument('-b', '--bounds', type=str, default='75,75|0.15,10|10,40|0.5,5|15,250',
+parser.add_argument('-b', '--bounds', type=str, default='75,75|0.5,10|15,15|0.5,5|40,350',
                     help='Parameter bounds in format "startPt|rateTh|width_LB|avgRate_LB|threshold" where each is "min,max"')
 parser.add_argument('-p', '--plot', action='store_true',
                     help='Flag to enable plotting false detection curves')
@@ -625,117 +625,6 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras=[DEFAULT_START_PT, DEFAUL
     logger.debug(f'startPt = {startPt}, rateTh = {rateTh}, width_LB = {width_LB}, avgRate_LB = {avgRate_LB}, threshold = {threshold}')
     return fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, falseDetectionList
 
-def paraSweep(paraName, range_vals, step, testlogFile=TESTLOGFILE, dataPath=DATAPATH):
-    """
-    Sweep through parameter values to find optimal settings
-    
-    Args:
-        paraName (str): Parameter name to sweep ('startPt', 'rateTh', etc.)
-        range_vals (tuple): Range of values (min, max)
-        step (float): Step size for the sweep
-        testlogFile (Path): Path to the test log file
-        dataPath (Path): Path to the data directory
-        
-    Returns:
-        tuple: Best parameters and corresponding metrics
-    """
-    posTests, negTests, outliers = testsGrouping(testlogFile)
-    negCurves, pcNTC, _ = NTCMetric(negTests, dataPath)
-    
-    posCurvesL, posCurvesM, posCurvesH, pcPOS, pos_missing = POSMetric(posTests, dataPath)
-    posCurves = [posCurvesL, posCurvesM, posCurvesH]
-    pcCurves = pcNTC + pcPOS
-    
-    # Default parameters
-    paras = [DEFAULT_START_PT, DEFAULT_RATE_TH, DEFAULT_WIDTH_LB, DEFAULT_AVG_RATE_LB, DEFAULT_THRESHOLD]
-    
-    # Map parameter name to index
-    param_indices = {
-        'startPt': 0,
-        'rateTh': 1,
-        'width_LB': 2,
-        'avgRate_LB': 3,
-        'threshold': 4
-    }
-    
-    if paraName not in param_indices:
-        logger.error(f"Invalid parameter name: {paraName}")
-        return paras, None
-        
-    index = param_indices[paraName]
-    
-    # Create parameter sweep range
-    paraSweeptLt = np.arange(range_vals[0], range_vals[1], step)
-    if not len(paraSweeptLt):
-        logger.error(f"Empty parameter sweep range: {range_vals} with step {step}")
-        return paras, None
-        
-    logger.info(f"Sweeping {paraName} from {range_vals[0]} to {range_vals[1]} with step {step}")
-    
-    # Track best parameters and results
-    best_params = paras.copy()
-    best_error_sum = float('inf')
-    best_results = None
-    
-    # Create results dataframe for all parameter values
-    results_data = []
-    
-    for para in paraSweeptLt:
-        # Round parameter value for better readability
-        paras[index] = np.round(para, 2)
-        
-        fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, fdList = curvesMetric(posCurves, negCurves, pcCurves, paras)
-        
-        # Calculate error rate
-        total_errors = fpCnt + fnHCnt + fnMCnt + fnLCnt + ivCnt
-        
-        # Track if this is the best result so far
-        if total_errors < best_error_sum:
-            best_error_sum = total_errors
-            best_params = paras.copy()
-            best_results = {
-                'FP': [fpCnt, len(negCurves)],
-                'FNH': [fnHCnt, len(posCurvesH)],
-                'FNM': [fnMCnt, len(posCurvesM)],
-                'FNL': [fnLCnt, len(posCurvesL)],
-                'IV': [ivCnt, len(pcCurves)]
-            }
-            
-        # Store results for this parameter value
-        results_data.append({
-            paraName: paras[index],
-            'FP': fpCnt,
-            'FNH': fnHCnt,
-            'FNM': fnMCnt,
-            'FNL': fnLCnt, 
-            'IV': ivCnt,
-            'Total Errors': total_errors
-        })
-        
-        # construct result into dataframe for display
-        d = {
-            'FP': [fpCnt, len(negCurves)], 
-            'FNH': [fnHCnt, len(posCurvesH)], 
-            'FNM': [fnMCnt, len(posCurvesM)], 
-            'FNL': [fnLCnt, len(posCurvesL)], 
-            'IV': [ivCnt, len(pcCurves)]
-        }
-        df = pd.DataFrame(data=d, index=['# of curves', 'Total # of curves'])
-        
-        print(f"\nFor {paraName} = {paras[index]}:")
-        print(df)
-    
-    # Create a summary dataframe of all results
-    results_df = pd.DataFrame(results_data)
-    
-    # Log the best parameters found
-    logger.info(f"Best {paraName} value: {best_params[index]}")
-    logger.info(f"Best parameter set: startPt={best_params[0]:.2f}, rateTh={best_params[1]:.2f}, "
-               f"width_LB={int(best_params[2])}, avgRate_LB={best_params[3]:.2f}, threshold={best_params[4]:.2f}")
-    logger.info(f"Total errors: {best_error_sum}")
-    
-    return best_params, best_results
-
 def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annotations=True, max_curves_per_plot=50):
     """
     Plot false detection curves for analysis
@@ -763,8 +652,6 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
         ax.text(15, 250, f"No {plotType} curves found", 
                 horizontalalignment='center', fontsize=24)
         plt.grid(True)
-        # Auto adjust x and y limits
-        ax.autoscale(enable=True, axis='both', tight=True)
 
         if save_path:
             fileName = save_path
@@ -838,7 +725,7 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
         # Plot curves with colors from palette
         curves_info = []
         plotted_curves = 0
-        max_signal = 500  # Default max
+        max_signal = 1500  # Default max
         
         for i, df in enumerate(chunk_curves):
             testId = df[1]
@@ -914,7 +801,7 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
                             
         # Adjust plot settings
         plt.grid(True)
-        ax.set_xlim([0, 30])
+        ax.set_xlim([0, 35])
         ax.set_ylim([0, max_signal])
         
         # Add legend at the bottom of the image (outside plotting area) for all plot types
@@ -979,207 +866,6 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
         logger.info(f"Saved metrics to {csv_filename}")
     
     return all_figures
-
-def optimizeParameters(args):
-    """
-    Main function to handle parameter optimization
-    
-    Args:
-        args: Command line arguments
-    """
-    logger.info("======== Start ADF parameters optimization ========")
-    
-    # Parse parameter bounds
-    bounds_parts = args.bounds.split('|')
-    if len(bounds_parts) != 5:
-        logger.error(f"Invalid bounds format: {args.bounds}")
-        return
-        
-    param_bounds = []
-    param_names = ['startPt', 'rateTh', 'width_LB', 'avgRate_LB', 'threshold']
-    
-    for i, part in enumerate(bounds_parts):
-        try:
-            min_val, max_val = map(float, part.split(','))
-            param_bounds.append((min_val, max_val))
-        except ValueError:
-            logger.error(f"Invalid bound format for {param_names[i]}: {part}")
-            return
-    
-    # Load data
-    posTests, negTests, outliers = testsGrouping(args.testlog)
-    negCurves, pcNTC, neg_missing = NTCMetric(negTests, args.data)
-    posCurvesL, posCurvesM, posCurvesH, pcPOS, pos_missing = POSMetric(posTests, args.data)
-    
-    # Combine data
-    posCurves = [posCurvesL, posCurvesM, posCurvesH]
-    pcCurves = pcNTC + pcPOS
-    
-    # Log summary of PC curve collection
-    total_missing = len(neg_missing) + len(pos_missing)
-    if total_missing > 0:
-        logger.warning(f"Total of {total_missing} PC curves missing ({len(pos_missing)} from positive tests, {len(neg_missing)} from negative tests)")
-        logger.info(f"Number of PC curves: {len(pcCurves)}")
-    
-    # Log parameter bounds
-    logger.info(f"### startPt|rateTh|width_LB|avgRate_LB|threshold: {args.bounds} ###")
-    
-    # Optimize for FP_FN (false positives and false negatives)
-    fp_fn_best_method = None
-    fp_fn_best_params = None
-    fp_fn_best_error = float('inf')
-    
-    logger.info("Optimizing parameters for FP_FN...")
-    
-    # For simplicity, we'll use a simple grid search over each parameter
-    # In a real system, we might use more advanced techniques like Bayesian optimization
-    for i, param_name in enumerate(param_names):
-        min_val, max_val = param_bounds[i]
-        # Calculate step size (10 steps in range)
-        step = (max_val - min_val) / 10
-        if step <= 0:
-            step = 1  # Default if bounds are equal
-            
-        params, results = paraSweep(param_name, (min_val, max_val), step, args.testlog, args.data)
-        
-        # Compare with current best
-        if results:
-            total_errors = sum(val[0] for val in results.values())
-            if total_errors < fp_fn_best_error:
-                fp_fn_best_error = total_errors
-                fp_fn_best_params = params
-                fp_fn_best_method = f"Grid search on {param_name}"
-    
-    logger.info(f"Best method for fp_fn: {fp_fn_best_method}")
-    logger.info("======== FP_FN Optimization Results ========")
-    logger.info("Optimized parameters for fp_fn:")
-    logger.info(f"startPt: {fp_fn_best_params[0]:.2f}")
-    logger.info(f"rateTh: {fp_fn_best_params[1]:.2f}")
-    logger.info(f"width_LB: {int(fp_fn_best_params[2])}")
-    logger.info(f"avgRate_LB: {fp_fn_best_params[3]:.2f}")
-    logger.info(f"threshold: {fp_fn_best_params[4]:.2f}")
-    logger.info(f"Minimum false curves count: {fp_fn_best_error:.4f}")
-    logger.info("======== End of FP_FN Optimization ========")
-    
-    # Run baseline statistics
-    logger.info("======== Baseline Statistics ========")
-    
-    # Negative curves baseline
-    neg_max_rates = [labelSteps(curve[-1])[1] for curve in negCurves]
-    neg_max_deltas = [labelSteps(curve[-1])[5] for curve in negCurves]
-    neg_avg_rates = [labelSteps(curve[-1])[4] for curve in negCurves]
-    
-    logger.info("Negative Curves Baseline:")
-    logger.info(f"Average max_rate: {np.mean(neg_max_rates):.2f}")
-    logger.info(f"Average max_delta: {np.mean(neg_max_deltas):.2f}")
-    logger.info(f"Average avgRate_LB: {np.mean(neg_avg_rates):.2f}")
-    
-    # PC curves baseline
-    pc_max_rates = [labelSteps(curve[-1])[1] for curve in pcCurves]
-    pc_max_deltas = [labelSteps(curve[-1])[5] for curve in pcCurves]
-    pc_avg_rates = [labelSteps(curve[-1])[4] for curve in pcCurves]
-    
-    logger.info("PC Curves Baseline:")
-    logger.info(f"Average max_rate: {np.mean(pc_max_rates):.2f}")
-    logger.info(f"Average max_delta: {np.mean(pc_max_deltas):.2f}")
-    logger.info(f"Average avgRate_LB: {np.mean(pc_avg_rates):.2f}")
-    
-    # Low positive curves baseline
-    low_max_rates = [labelSteps(curve[-1])[1] for curve in posCurvesL]
-    low_max_deltas = [labelSteps(curve[-1])[5] for curve in posCurvesL]
-    low_avg_rates = [labelSteps(curve[-1])[4] for curve in posCurvesL]
-    
-    logger.info("Low Positive Curves Baseline:")
-    logger.info(f"Average max_rate: {np.mean(low_max_rates):.2f}")
-    logger.info(f"Average max_delta: {np.mean(low_max_deltas):.2f}")
-    logger.info(f"Average avgRate_LB: {np.mean(low_avg_rates):.2f}")
-    logger.info("======== End of Baseline Statistics ========")
-    
-    # Optimize for IV count
-    iv_best_method = None
-    iv_best_params = None
-    iv_best_count = float('inf')
-    
-    logger.info("Optimizing for PC validity...")
-    
-    # Specifically focus on threshold parameter for IV optimization
-    min_val, max_val = param_bounds[4]  # threshold bounds
-    step = (max_val - min_val) / 20  # finer steps for threshold
-    
-    # Start from FP_FN optimal parameters and tweak threshold
-    params = fp_fn_best_params.copy()
-    
-    for threshold in np.arange(min_val, max_val, step):
-        params[4] = round(threshold, 2)
-        _, _, _, _, ivCnt, _ = curvesMetric(posCurves, negCurves, pcCurves, params)
-        
-        if ivCnt < iv_best_count:
-            iv_best_count = ivCnt
-            iv_best_params = params.copy()
-            iv_best_method = "Threshold adjustment"
-            logger.info(f"New best result - ivCnt: {ivCnt}, threshold: {threshold:.2f}")
-    
-    logger.info(f"Best method for ivCnt: {iv_best_method}")
-    logger.info("======== PC Optimization Results ========")
-    logger.info(f"startPt: {iv_best_params[0]:.2f}")
-    logger.info(f"rateTh: {iv_best_params[1]:.2f}")
-    logger.info(f"width_LB: {int(iv_best_params[2])}")
-    logger.info(f"avgRate_LB: {iv_best_params[3]:.2f}")
-    logger.info(f"threshold: {iv_best_params[4]:.2f}")
-    logger.info(f"Invalid PC count: {iv_best_count}")
-    logger.info("======== End of PC Optimization Results ========")
-    
-    # Generate detailed false detection list for FP_FN optimal parameters
-    fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, fdList = curvesMetric(posCurves, negCurves, pcCurves, fp_fn_best_params)
-    
-    logger.info(f"====== False Detection Details for FP_FN - Method: {fp_fn_best_method} ======")
-    logger.info(f"Parameters: startPt={fp_fn_best_params[0]:.2f}, rateTh={fp_fn_best_params[1]:.2f}, "
-               f"width_LB={int(fp_fn_best_params[2])}, avgRate_LB={fp_fn_best_params[3]:.2f}, "
-               f"threshold={fp_fn_best_params[4]:.2f}")
-    
-    for fd in fdList:
-        logger.info(f"Type: {fd[0]}, TestID: {fd[1]}, Channel: {fd[2]}")
-    
-    logger.info(f"Total false detections: {len(fdList)}")
-    logger.info("============================================================")
-    
-    # Generate detailed false detection list for IV optimal parameters
-    fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, fdList = curvesMetric(posCurves, negCurves, pcCurves, iv_best_params)
-    
-    logger.info(f"====== False Detection Details for PC - Method: {iv_best_method} ======")
-    logger.info(f"Parameters: startPt={iv_best_params[0]:.2f}, rateTh={iv_best_params[1]:.2f}, "
-               f"width_LB={int(iv_best_params[2])}, avgRate_LB={iv_best_params[3]:.2f}, "
-               f"threshold={iv_best_params[4]:.2f}")
-    
-    for fd in fdList:
-        logger.info(f"Type: {fd[0]}, TestID: {fd[1]}, Channel: {fd[2]}")
-    
-    logger.info(f"Total false detections: {len(fdList)}")
-    logger.info("============================================================")
-    
-    # Save false detection list to CSV if requested
-    if args.output:
-        with open(args.output, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Type', 'TestID', 'Channel'])
-            for fd in fdList:
-                writer.writerow([fd[0], fd[1], fd[2]])
-        logger.info(f"Saved false detection list to {args.output}")
-    
-    # Plot false detection curves if requested
-    if args.plot:
-        for plot_type in ['FP', 'FNL', 'FNM', 'FNH', 'IV']:
-            plotFalseDetectionCurves(fdList, plot_type, iv_best_params)
-            
-    return fp_fn_best_params, iv_best_params
-
-# Main entry point
-if __name__ == "__main__":
-    try:
-        optimizeParameters(args)
-    except Exception as e:
-        logger.error(f"Error during execution: {str(e)}", exc_info=True)
-        raise
 
 
 
