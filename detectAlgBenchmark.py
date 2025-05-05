@@ -38,7 +38,7 @@ parser.add_argument('-d', '--data', type=str, default='./ADFtraining/',
                     help='Path to training data directory')
 parser.add_argument('-t', '--testlog', type=str, default='testlog.csv',
                     help='Path to test log file')
-parser.add_argument('-b', '--bounds', type=str, default='75,75|0.5,10|15,15|0.5,5|40,350',
+parser.add_argument('-b', '--bounds', type=str, default='75,75|0.3,10|15,30|0.5,5|40,350',
                     help='Parameter bounds in format "startPt|rateTh|width_LB|avgRate_LB|threshold" where each is "min,max"')
 parser.add_argument('-p', '--plot', action='store_true',
                     help='Flag to enable plotting false detection curves')
@@ -46,12 +46,19 @@ parser.add_argument('-v', '--verbose', action='store_true',
                     help='Enable debug level logging')
 parser.add_argument('-o', '--output', type=str, default='falseDetectionList.csv',
                     help='Output file for false detection list')
+parser.add_argument('-m', '--smooth-method', type=str, default='adaptive',
+                    choices=['standard', 'savgol', 'median', 'adaptive'],
+                    help='Signal smoothing method to use')
+parser.add_argument('-a', '--adaptive', action='store_true', default=True,
+                    help='Enable adaptive window sizing for smoothing')
 
 
 args = parser.parse_args()
 
 PlotFalse = args.plot
 argBounds = args.bounds
+SMOOTH_METHOD = args.smooth_method
+ADAPTIVE_SMOOTH = args.adaptive
 
 DATAPATH = Path(args.data)
 TESTLOGFILE = Path(args.testlog)
@@ -79,14 +86,20 @@ logger = logging.getLogger()
 if args.verbose:
     logger.setLevel(logging.DEBUG)
 
-def smooth(x, window_len=10, window='hanning'):
+# Log smoothing method configuration
+logger.info(f"Using '{SMOOTH_METHOD}' smoothing method with adaptive sizing: {ADAPTIVE_SMOOTH}")
+
+def smooth(x, window_len=10, window='hanning', method='standard', poly_order=3, adaptive=False):
     """
-    Smooth the data using a window with requested size and shape.
+    Smooth the data using various filtering methods while preserving curve trends.
     
     Args:
         x (array): Input signal
         window_len (int): Length of the smoothing window
         window (str): Type of window function ('flat', 'hanning', 'hamming', 'bartlett', 'blackman')
+        method (str): Smoothing method ('standard', 'savgol', 'median', 'adaptive')
+        poly_order (int): Polynomial order for Savitzky-Golay filter
+        adaptive (bool): Whether to use adaptive window sizing based on signal characteristics
         
     Returns:
         array: Smoothed signal
@@ -95,32 +108,105 @@ def smooth(x, window_len=10, window='hanning'):
         raise ValueError("smooth only accepts 1 dimension arrays.")
 
     if x.size < window_len:
-        raise ValueError("Input vector needs to be bigger than window size.")
+        return x  # Return original signal if it's smaller than window size
 
     if window_len < 3:
-        return x
+        return x  # No smoothing for very small windows
 
-    valid_windows = {
-        'flat': np.ones,
-        'hanning': np.hanning,
-        'hamming': np.hamming,
-        'bartlett': np.bartlett,
-        'blackman': np.blackman
-    }
+    # Adaptive window sizing if requested
+    if adaptive:
+        # Calculate signal variability
+        signal_std = np.std(x)
+        
+        # Adjust window length based on variability
+        # Small window for high variability, larger for low variability
+        if signal_std > np.mean(np.abs(x)) * 0.15:  # High variability 
+            window_len = max(3, int(window_len * 0.7))
+        elif signal_std < np.mean(np.abs(x)) * 0.05:  # Low variability
+            window_len = min(int(window_len * 1.3), len(x) // 4)
+            
+        # Ensure window length is odd for symmetry
+        if window_len % 2 == 0:
+            window_len += 1
 
-    if window not in valid_windows:
-        valid_window_names = ', '.join(f"'{name}'" for name in valid_windows.keys())
-        raise ValueError(f"Window must be one of {valid_window_names}")
+    # Apply different smoothing methods
+    if method == 'savgol':
+        try:
+            from scipy import signal
+            # Ensure window_len is odd for Savitzky-Golay
+            if window_len % 2 == 0:
+                window_len += 1
+            
+            # Ensure poly_order is less than window_len
+            if poly_order >= window_len:
+                poly_order = window_len - 1
+            
+            y = signal.savgol_filter(x, window_len, poly_order)
+            return np.round(y, decimals=3)
+        except ImportError:
+            logger.warning("SciPy not available, falling back to standard smoothing")
+            method = 'standard'
+            
+    if method == 'median':
+        try:
+            from scipy import ndimage
+            y = ndimage.median_filter(x, size=window_len)
+            return np.round(y, decimals=3)
+        except ImportError:
+            logger.warning("SciPy not available, falling back to standard smoothing")
+            method = 'standard'
+            
+    if method == 'adaptive':
+        # Adaptive method combines standard and edge-preserving techniques
+        # Use median filter for the initial pass to remove spikes
+        try:
+            from scipy import ndimage
+            # Median filter to remove spikes
+            x_med = ndimage.median_filter(x, size=min(5, window_len))
+            
+            # Then apply Savitzky-Golay for trend preservation
+            from scipy import signal
+            if window_len % 2 == 0:
+                window_len += 1
+            if poly_order >= window_len:
+                poly_order = window_len - 1
+                
+            y = signal.savgol_filter(x_med, window_len, poly_order)
+            return np.round(y, decimals=3)
+        except ImportError:
+            logger.warning("SciPy not available, falling back to standard smoothing")
+            method = 'standard'
 
-    s = np.r_[x[window_len-1:0:-1], x, x[-2:-window_len-1:-1]]
-    
-    if window == 'flat':  # moving average
+    # Standard smoothing with improved edge handling
+    if method == 'standard':
+        valid_windows = {
+            'flat': np.ones,
+            'hanning': np.hanning,
+            'hamming': np.hamming,
+            'bartlett': np.bartlett,
+            'blackman': np.blackman
+        }
+
+        if window not in valid_windows:
+            valid_window_names = ', '.join(f"'{name}'" for name in valid_windows.keys())
+            raise ValueError(f"Window must be one of {valid_window_names}")
+
+        # Improved edge handling by mirroring the signal
+        s = np.r_[2*x[0] - x[window_len:0:-1], x, 2*x[-1] - x[-2:-window_len-2:-1]]
+        
         w = valid_windows[window](window_len)
-    else:
-        w = valid_windows[window](window_len)
+        y = np.convolve(w/w.sum(), s, mode='valid')
+        
+        # Further adjust endpoints to avoid distortion
+        # Blend the first few and last few points to avoid edge effects
+        blend_len = min(3, window_len // 3)
+        if len(y) > 2*blend_len:
+            y[:blend_len] = np.linspace(x[0], y[blend_len], blend_len)
+            y[-blend_len:] = np.linspace(y[-blend_len-1], x[-1], blend_len)
 
-    y = np.convolve(w/w.sum(), s, mode='valid')
-    return np.round(y, decimals=3)
+        return np.round(y, decimals=3)
+        
+    return np.round(x, decimals=3)  # Fallback to original signal
 
 def labelSteps(datas, startPt=DEFAULT_START_PT, rateTh=DEFAULT_RATE_TH, 
                width_LB=DEFAULT_WIDTH_LB, avgRate_LB=DEFAULT_AVG_RATE_LB):
@@ -212,7 +298,7 @@ def readRunCsv(filename):
         
     Returns:
         tuple: Contains:
-            - idInfo (list): Test identification information [test_id, barcode]
+            - idInfo (list): Test identification information [sample_id, test_id, barcode]
             - OverallResult (str): Overall test result
             - signalList (list): List of smoothed signal data for each channel
     """
@@ -246,6 +332,7 @@ def readRunCsv(filename):
                         barcode_idx = header.index('Barcode') if 'Barcode' in header else -1
                         result_idx = header.index('OverallResult') if 'OverallResult' in header else -1
                         ruid_idx = header.index('Ruid') if 'Ruid' in header else 1  # Default to column 1
+                        sample_id_idx = header.index('SampleId') if 'SampleId' in header else -1
                         
                         if barcode_idx >= 0 and barcode_idx < len(info):
                             barcode = info[barcode_idx]
@@ -261,8 +348,15 @@ def readRunCsv(filename):
                             test_id = info[ruid_idx]
                         else:
                             test_id = os.path.basename(filename).split('_')[0]
+                        
+                        # Extract Sample ID if available    
+                        if sample_id_idx >= 0 and sample_id_idx < len(info) and info[sample_id_idx].strip():
+                            sample_id = info[sample_id_idx]
+                        else:
+                            # Use test_id as fallback if sample_id is not available
+                            sample_id = test_id
                             
-                        test_info = [test_id, barcode]
+                        test_info = [sample_id, test_id, barcode]
                         break
                     except Exception as e:
                         logger.warning(f"Error parsing header in {filename}: {str(e)}")
@@ -307,8 +401,8 @@ def readRunCsv(filename):
                                 pass
                     
                     if len(signal_data) >= 9:
-                        # Apply smoothing to the signal data
-                        signalList.append(smooth(np.array(signal_data)))
+                        # Apply smoothing using method from command-line arguments
+                        signalList.append(smooth(np.array(signal_data), method=SMOOTH_METHOD, adaptive=ADAPTIVE_SMOOTH))
                     else:
                         # Add an empty placeholder for consistent channel indexing
                         signalList.append(np.array([]))
@@ -345,6 +439,13 @@ def testsGrouping(testlogFile):
 
     for _, row in df.iterrows():
         test_id = row['Run UID']
+        # Check if Sample ID is available (added for human-friendly ID reference)
+        if 'Sample ID' in row.index and not pd.isna(row['Sample ID']) and row['Sample ID'].strip():
+            sample_id = row['Sample ID']
+        else:
+            # Use Run UID as fallback
+            sample_id = test_id
+            
         sample_type = None # Initialize sample_type
 
         # Try getting from 'Sample Type' column first
@@ -356,7 +457,7 @@ def testsGrouping(testlogFile):
 
         # Handle cases where neither column provides a valid sample type
         if sample_type is None:
-            logger.warning(f"Could not determine sample type for Test ID {test_id} from 'Sample Type' or 'Expected Result'. Skipping.")
+            logger.warning(f"Could not determine sample type for Test ID {sample_id} (UID: {test_id}) from 'Sample Type' or 'Expected Result'. Skipping.")
             outliers.append(test_id) # Treat as outlier or handle as needed
             continue # Skip processing this row
 
@@ -368,7 +469,7 @@ def testsGrouping(testlogFile):
             layout = [item.strip() for item in layout_str.split(',')]
             # If layout doesn't have exactly 5 items, use default
             if len(layout) != 5:
-                logger.warning(f"Layout for Test ID {test_id} is invalid: '{layout_str}'. Using default.")
+                logger.warning(f"Layout for Test ID {sample_id} (UID: {test_id}) is invalid: '{layout_str}'. Using default.")
                 layout = DEFAULT_LAYOUT.copy()
 
         # Handle missing Sample Concentration column safely
@@ -381,23 +482,25 @@ def testsGrouping(testlogFile):
                  # Ensure concentration is a number
                  conc = float(conc)
             except ValueError:
-                 logger.warning(f"Invalid concentration value for Test ID {test_id}: '{row['Sample Concentration']}'. Using default {DEFAULT_CONC}.")
+                 logger.warning(f"Invalid concentration value for Test ID {sample_id} (UID: {test_id}): '{row['Sample Concentration']}'. Using default {DEFAULT_CONC}.")
                  conc = DEFAULT_CONC
 
 
-        # Store test info with layout and concentration
+        # Store test info with layout, concentration, and sample_id
         if sample_type == 'Positive':
             posTests[test_id] = {
                 'conc': conc,
-                'layout': layout
+                'layout': layout,
+                'sample_id': sample_id
             }
         elif sample_type == 'Negative':
             negTests[test_id] = {
-                'layout': layout
+                'layout': layout,
+                'sample_id': sample_id
             }
         else:
             # Handle other sample types if necessary, or treat as outliers
-            logger.warning(f"Unknown sample type '{sample_type}' for Test ID {test_id}. Treating as outlier.")
+            logger.warning(f"Unknown sample type '{sample_type}' for Test ID {sample_id} (UID: {test_id}). Treating as outlier.")
             outliers.append(test_id)
 
     # Log the test counts
@@ -438,15 +541,18 @@ def NTCMetric(negTests, dataPath):
             continue
             
         if test_id not in test_files:
-            logger.debug(f"No file found for negative test ID: {test_id}")
-            missing_pc_info.append((test_id, "File not found"))
+            logger.debug(f"No file found for negative test ID: {test_info['sample_id']} (UID: {test_id})")
+            missing_pc_info.append((test_info['sample_id'], "File not found"))
             continue
             
         filename = test_files[test_id]
-        _, _, signalList = readRunCsv(filename)
+        test_info_from_file, _, signalList = readRunCsv(filename)
+        # Use the file's sample_id if available, otherwise use the one from the test log
+        sample_id = test_info_from_file[0] if test_info_from_file and test_info_from_file[0] else test_info['sample_id']
+        
         if not signalList:
-            logger.debug(f"No signal data found for test ID: {test_id}")
-            missing_pc_info.append((test_id, os.path.basename(str(filename))))
+            logger.debug(f"No signal data found for test ID: {sample_id} (UID: {test_id})")
+            missing_pc_info.append((sample_id, os.path.basename(str(filename))))
             continue
             
         layout = test_info['layout']
@@ -454,10 +560,10 @@ def NTCMetric(negTests, dataPath):
         # Process PC channel (ch1) if marked as PC
         if layout[0].strip().upper() == 'PC':
             if len(signalList) > 0 and len(signalList[0]) > 0:
-                pcCurves.append([test_id, 'ch1', signalList[0]])
+                pcCurves.append([sample_id, 'ch1', signalList[0]])
             else:
-                logger.debug(f"Missing PC curve data for test ID: {test_id}")
-                missing_pc_info.append((test_id, os.path.basename(str(filename))))
+                logger.debug(f"Missing PC curve data for test ID: {sample_id} (UID: {test_id})")
+                missing_pc_info.append((sample_id, os.path.basename(str(filename))))
             
         # Process target channels (ch2-ch5) if not marked as PC
         for i, layout_mark in enumerate(layout[1:], 1):
@@ -465,15 +571,15 @@ def NTCMetric(negTests, dataPath):
                 i < len(signalList)):
                 # Check if signal data is valid
                 if i < len(signalList) and signalList[i] is not None and len(signalList[i]) > 0:
-                    negCurves.append([test_id, f'ch{i+1}', signalList[i]])
+                    negCurves.append([sample_id, f'ch{i+1}', signalList[i]])
     
     logger.info(f"Number of negative curves: {len(negCurves)}")
     
     # Log details about missing PC curves
     if missing_pc_info:
         logger.warning(f"Missing PC curves from {len(missing_pc_info)} negative tests")
-        for test_id, filename in missing_pc_info:
-            logger.warning(f"  - Test ID {test_id}: {filename}")
+        for sample_id, filename in missing_pc_info:
+            logger.warning(f"  - Test ID {sample_id}: {filename}")
     
     return negCurves, pcCurves, missing_pc_info
                 
@@ -517,15 +623,18 @@ def POSMetric(posTests, dataPath):
             continue
             
         if test_id not in test_files:
-            logger.debug(f"No file found for positive test ID: {test_id}")
-            missing_pc_info.append((test_id, "File not found"))
+            logger.debug(f"No file found for positive test ID: {test_info['sample_id']} (UID: {test_id})")
+            missing_pc_info.append((test_info['sample_id'], "File not found"))
             continue
             
         filename = test_files[test_id]
-        _, _, signalList = readRunCsv(filename)
+        test_info_from_file, _, signalList = readRunCsv(filename)
+        # Use the file's sample_id if available, otherwise use the one from the test log
+        sample_id = test_info_from_file[0] if test_info_from_file and test_info_from_file[0] else test_info['sample_id']
+        
         if not signalList:
-            logger.debug(f"No signal data found for test ID: {test_id}")
-            missing_pc_info.append((test_id, os.path.basename(str(filename))))
+            logger.debug(f"No signal data found for test ID: {sample_id} (UID: {test_id})")
+            missing_pc_info.append((sample_id, os.path.basename(str(filename))))
             continue
             
         layout = test_info['layout']
@@ -534,10 +643,10 @@ def POSMetric(posTests, dataPath):
         # Process PC channel (ch1) if marked as PC
         if layout[0].strip().upper() == 'PC':
             if len(signalList) > 0 and len(signalList[0]) > 0:
-                pcCurves.append([test_id, 'ch1', signalList[0]])
+                pcCurves.append([sample_id, 'ch1', signalList[0]])
             else:
-                logger.debug(f"Missing PC curve data for test ID: {test_id}")
-                missing_pc_info.append((test_id, os.path.basename(str(filename))))
+                logger.debug(f"Missing PC curve data for test ID: {sample_id} (UID: {test_id})")
+                missing_pc_info.append((sample_id, os.path.basename(str(filename))))
             
         # Process target channels (ch2-ch5) if not marked as PC
         curves = None
@@ -552,21 +661,21 @@ def POSMetric(posTests, dataPath):
                 else:
                     closest_conc = MEDIUM_CONC
             curves = conc_map[closest_conc]
-            logger.debug(f"Test ID {test_id} has non-standard concentration {conc}. Using {closest_conc} category.")
+            logger.debug(f"Test ID {sample_id} (UID: {test_id}) has non-standard concentration {conc}. Using {closest_conc} category.")
         
         for i, layout_mark in enumerate(layout[1:], 1):
             if (layout_mark.strip().upper() != 'PC' and 
                 i < len(signalList)):
                 if signalList[i] is not None and len(signalList[i]) > 0:
-                    curves.append([test_id, f'ch{i+1}', signalList[i]])
+                    curves.append([sample_id, f'ch{i+1}', signalList[i]])
     
     logger.info(f"Number of positive curves: {len(posCurvesL) + len(posCurvesM) + len(posCurvesH)}")
     
     # Log details about missing PC curves
     if missing_pc_info:
         logger.warning(f"Missing PC curves from {len(missing_pc_info)} positive tests")
-        for test_id, filename in missing_pc_info:
-            logger.warning(f"  - Test ID {test_id}: {filename}")
+        for sample_id, filename in missing_pc_info:
+            logger.warning(f"  - Test ID {sample_id}: {filename}")
     
     # Log expected PC count from positive tests only
     expected_pc_from_pos = sum(1 for test_info in posTests.values() 
@@ -596,31 +705,61 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras=[DEFAULT_START_PT, DEFAUL
     posCurvesL, posCurvesM, posCurvesH = posCurves
     curvesDist = {'PC': pcCurves, 'NEG': negCurves, 'POSL': posCurvesL, 'POSM': posCurvesM, 'POSH': posCurvesH}
     falseDetectionList = []
+    allCurvesMetrics = []  # Store metrics for all curves
     
     for type, curves in curvesDist.items():
         for curve in curves:
-            testId = curve[0]
+            # First element is now sample_id (human-readable)
+            sample_id = curve[0]
             ch = curve[1]
             signal = curve[-1]
-            _, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(signal, startPt, rateTh, width_LB, avgRate_LB)
+            steps, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(signal, startPt, rateTh, width_LB, avgRate_LB)
             rlt = (diff >= threshold) 
             
+            # Store metrics for all curves
+            curve_metrics = {
+                'sample_id': sample_id,
+                'channel': ch,
+                'type': type,
+                'diff': diff,
+                'cp': cp,
+                'stepWidth': stepWidth,
+                'avgRate': avgRate,
+                'maxDiff': maxDiff,
+                'qualified': rlt
+            }
+            
+            # Append to falseDetectionList only if it's a false detection
             if not rlt and type != 'NEG':
                 if type == 'PC':
                     ivCnt += 1
-                    falseDetectionList.append(['IV', testId, ch, signal])
+                    falseDetectionList.append(['IV', sample_id, ch, signal, curve_metrics])
                 elif type == 'POSL':
                     fnLCnt += 1
-                    falseDetectionList.append(['FNL', testId, ch, signal])
+                    falseDetectionList.append(['FNL', sample_id, ch, signal, curve_metrics])
                 elif type == 'POSM':
                     fnMCnt += 1
-                    falseDetectionList.append(['FNM', testId, ch, signal])
+                    falseDetectionList.append(['FNM', sample_id, ch, signal, curve_metrics])
                 elif type == 'POSH':
                     fnHCnt += 1
-                    falseDetectionList.append(['FNH', testId, ch, signal])
+                    falseDetectionList.append(['FNH', sample_id, ch, signal, curve_metrics])
             elif rlt and type == 'NEG':
                 fpCnt += 1
-                falseDetectionList.append(['FP', testId, ch, signal])
+                falseDetectionList.append(['FP', sample_id, ch, signal, curve_metrics])
+            else:
+                # More specific categorization of correctly identified curves
+                # - Use 'TN' for True Negatives (correctly identified negative samples) 
+                # - Use 'TP' for True Positives (correctly identified positive samples in ch2-ch5)
+                # - Use 'VALID' for valid PC (correctly identified positive samples in ch1)
+                if type == 'NEG':
+                    category = 'TN'  # True Negative
+                else:
+                    # Check if it's from channel 1 (PC) or other channels
+                    if ch == 'ch1':
+                        category = 'VALID'  # Valid PC
+                    else:
+                        category = 'TP'  # True Positive
+                falseDetectionList.append([category, sample_id, ch, signal, curve_metrics])
             
     logger.debug(f'startPt = {startPt}, rateTh = {rateTh}, width_LB = {width_LB}, avgRate_LB = {avgRate_LB}, threshold = {threshold}')
     return fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, falseDetectionList
@@ -728,14 +867,15 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
         max_signal = 1500  # Default max
         
         for i, df in enumerate(chunk_curves):
-            testId = df[1]
+            # df[0] is the error type, df[1] is the sample_id (human-readable)
+            sample_id = df[1]
             ch = df[2]
             signal = df[3]
-            curve_label = f"{testId}_{ch}"
+            curve_label = f"{sample_id}_{ch}"
             
             # Calculate time series (x-axis)
             xSeries = np.arange(0, len(signal), 1)
-            xSeries = np.interp(xSeries, (xSeries.min(), xSeries.max()), (0, 30))
+            xSeries = np.interp(xSeries, (xSeries.min(), xSeries.max()), (0, 35))
             
             # Plot with color from palette (cycling through)
             color = color_palette[i % len(color_palette)]
@@ -748,7 +888,7 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
             # Store metrics for CSV export
             curves_metrics.append({
                 'Type': plotType,
-                'TestID': testId,
+                'SampleID': sample_id,
                 'Channel': ch,
                 'Diff': diff,
                 'Cp': cp,
@@ -791,13 +931,6 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
                 signal = info['signal']
                 xSeries = info['xSeries']
                 metrics = info['metrics']
-                
-                # Find index of the Cp value
-                if metrics['cp'] > 0:
-                    cp_index = int((metrics['cp'] + TIME_OFFSET) / TIME_CONVERSION_FACTOR)
-                    if cp_index < len(signal):
-                        ax.plot(metrics['cp'], signal[cp_index], 'o', color='black', markersize=8,
-                            markeredgecolor=info['line'].get_color(), markeredgewidth=2)
                             
         # Adjust plot settings
         plt.grid(True)
@@ -867,7 +1000,123 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
     
     return all_figures
 
+def save_false_detection_list(fdList, output_file=OUTPUT_FILE, params=None):
+    """
+    Save the false detection list and all curves metrics to CSV files
+    
+    Args:
+        fdList (list): List of false detection data and all curve metrics
+        output_file (str): Path to save the CSV file
+        params (list, optional): Parameters used for detection
+    """
+    if not fdList:
+        logger.warning(f"No detection data to save to {output_file}")
+        return
+    
+    # Create DataFrame from the false detection list
+    fd_data = []
+    all_curves_data = []  # For storing all curves metrics
+    
+    for fd in fdList:
+        # Extract details but exclude the signal data (fd[3]) which is too large for CSV
+        fd_type = fd[0]  # FP, FNL, FNM, FNH, IV, PASS, TN
+        sample_id = fd[1]  # Sample ID (human-readable)
+        channel = fd[2]  # Channel (ch1, ch2, etc.)
+        
+        # If the curve_metrics are stored in the list item
+        if len(fd) > 4 and isinstance(fd[4], dict):
+            metrics = fd[4]
+            curve_data = {
+                'Type': fd_type,
+                'SampleID': sample_id,
+                'Channel': channel,
+                'Diff': metrics['diff'],
+                'Cp': metrics['cp'],
+                'StepWidth': metrics['stepWidth'],
+                'AvgRate': metrics['avgRate'],
+                'MaxDiff': metrics['maxDiff'],
+                'Qualified': metrics['qualified'],
+                'Result': get_result_description(fd_type)
+            }
+            
+            # All curves go to the complete metrics file
+            all_curves_data.append(curve_data)
+            
+            # Only false detections go to the false detection list
+            if fd_type in ['FP', 'FNL', 'FNM', 'FNH', 'IV']:
+                fd_data.append(curve_data)
+                
+        # For backward compatibility with old format
+        elif params:
+            signal = fd[3]
+            startPt, rateTh, width_LB, avgRate_LB, threshold = params
+            _, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(signal, startPt, rateTh, width_LB, avgRate_LB)
+            
+            curve_data = {
+                'Type': fd_type,
+                'SampleID': sample_id,
+                'Channel': channel,
+                'Diff': diff,
+                'Cp': cp,
+                'StepWidth': stepWidth,
+                'AvgRate': avgRate,
+                'MaxDiff': maxDiff,
+                'Threshold': threshold,
+                'Result': get_result_description(fd_type)
+            }
+            
+            all_curves_data.append(curve_data)
+            
+            # Only false detections go to the false detection list
+            if fd_type in ['FP', 'FNL', 'FNM', 'FNH', 'IV']:
+                fd_data.append(curve_data)
+        else:
+            # Simplified output without metrics
+            curve_data = {
+                'Type': fd_type,
+                'SampleID': sample_id,
+                'Channel': channel,
+                'Result': get_result_description(fd_type)
+            }
+            
+            all_curves_data.append(curve_data)
+            
+            # Only false detections go to the false detection list
+            if fd_type in ['FP', 'FNL', 'FNM', 'FNH', 'IV']:
+                fd_data.append(curve_data)
+    
+    # Create DataFrames and save to CSV
+    fd_df = pd.DataFrame(fd_data)
+    fd_df.to_csv(output_file, index=False)
+    logger.info(f"Saved {len(fd_data)} false detections to {output_file}")
+    
+    # Save all curves metrics to a separate file
+    all_metrics_output = output_file.replace('.csv', '_all_curves.csv')
+    all_curves_df = pd.DataFrame(all_curves_data)
+    all_curves_df.to_csv(all_metrics_output, index=False)
+    logger.info(f"Saved metrics for {len(all_curves_data)} curves to {all_metrics_output}")
+    
+    return fd_df, all_curves_df
 
-
-
-
+def get_result_description(fd_type):
+    """
+    Return a descriptive result based on the detection type.
+    
+    Args:
+        fd_type (str): The detection type category
+        
+    Returns:
+        str: A descriptive result string
+    """
+    result_descriptions = {
+        'FP': 'False Positive',
+        'FNL': 'False Negative (Low Conc.)',
+        'FNM': 'False Negative (Medium Conc.)',
+        'FNH': 'False Negative (High Conc.)',
+        'IV': 'Invalid PC',
+        'TP': 'True Positive',
+        'VALID': 'Valid PC',
+        'TN': 'True Negative'
+    }
+    
+    return result_descriptions.get(fd_type, f'Unknown ({fd_type})')

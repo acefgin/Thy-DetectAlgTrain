@@ -14,6 +14,8 @@ PD_training/
 SC2A2/
 SC2A2_NB_retrain/
 OTSHA_retrain/
+OTSHA_filtered/
+Example_optimization/
 
 # User-specific files
 *.rsuser

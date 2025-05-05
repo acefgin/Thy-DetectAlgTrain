@@ -1,6 +1,6 @@
 from scipy.optimize import minimize
 from detectAlgBenchmark import curvesMetric, testsGrouping, NTCMetric, POSMetric, plotFalseDetectionCurves
-from detectAlgBenchmark import DATAPATH, TESTLOGFILE, argBounds, PlotFalse
+from detectAlgBenchmark import DATAPATH, TESTLOGFILE, argBounds, PlotFalse, OUTPUT_FILE, save_false_detection_list
 import logging
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -516,7 +516,8 @@ def log_false_detections(params, method_name, error_type="FP_FN"):
                f"width_LB={int(params[2])}, avgRate_LB={params[3]:.2f}, threshold={params[4]:.2f}")
     
     for fd in filtered_list:
-        logger.info(f"Type: {fd[0]}, TestID: {fd[1]}, Channel: {fd[2]}")
+        # fd[0] is detection type, fd[1] is sample_id (human-readable)
+        logger.info(f"Type: {fd[0]}, Sample ID: {fd[1]}, Channel: {fd[2]}")
     
     logger.info(f"Total false detections: {len(filtered_list)}")
     logger.info("=" * 60)
@@ -542,12 +543,15 @@ def log_false_detections(params, method_name, error_type="FP_FN"):
             # Use the current methodology parameters for processing but optimized params for naming
             save_path = f'falseDetection_IV.png'
             plotFalseDetectionCurves(fdList, 'IV', params, save_path=save_path, max_curves_per_plot=50)
+            
+    return fdList
 
 # Log false detections for the best FP_FN parameters
 if best_result:
-    log_false_detections(best_result.x_unscaled, best_method, "FP_FN")
+    fp_fn_fdList = log_false_detections(best_result.x_unscaled, best_method, "FP_FN")
 
 # Log false detections for the best PC parameters
+pc_fdList = None
 if global_best_base_params is not None:  # Changed condition to check base params instead
     # Use FP_FN optimal parameters, only update threshold
     full_params = [
@@ -557,9 +561,24 @@ if global_best_base_params is not None:  # Changed condition to check base param
         global_best_base_params[3],  # avgRate_LB
         global_best_threshold
     ]
-    log_false_detections(full_params, "Threshold Optimization", "PC")  # Updated method name
+    pc_fdList = log_false_detections(full_params, "Threshold Optimization", "PC")  # Updated method name
 else:
     logger.warning("No global best parameters found for PC optimization")
+
+# Combine all false detections from both optimizations for final output
+if best_result and global_best_base_params is not None:
+    # Get the most optimized parameters
+    best_params = best_result.x_unscaled.copy()
+    # Update threshold with best PC threshold
+    best_params[4] = global_best_threshold
+    
+    # Run once more to get all false detections with these optimized parameters
+    _, _, _, _, _, all_fdList = curvesMetric(posCurves, negCurves, pcCurves, best_params)
+    
+    # Save false detection list to the specified output file
+    save_false_detection_list(all_fdList, OUTPUT_FILE, best_params)
+    
+    logger.info(f"Saved combined false detection list to {OUTPUT_FILE}")
 
 logger.info("Optimization completed successfully.")
 
