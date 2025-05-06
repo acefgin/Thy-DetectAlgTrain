@@ -1,3 +1,15 @@
+"""
+Backward compatibility module for detectAlgBenchmark.py
+This module imports everything from benchmark.py to maintain compatibility with existing code.
+"""
+
+# Import the init_config function and initialize configuration
+from config import init_config
+args = init_config()
+
+# Import everything from benchmark.py to maintain backward compatibility
+from benchmark import *
+
 import os, csv, glob
 import argparse
 

@@ -1,6 +1,22 @@
+import os
+# Set NumExpr to use 16 cores
+os.environ["NUMEXPR_MAX_THREADS"] = "16"
+
 from scipy.optimize import minimize
-from detectAlgBenchmark import curvesMetric, testsGrouping, NTCMetric, POSMetric, plotFalseDetectionCurves
-from detectAlgBenchmark import DATAPATH, TESTLOGFILE, argBounds, PlotFalse, OUTPUT_FILE, save_false_detection_list
+# First import and run the initialization function
+from config import init_config
+
+# Initialize configuration immediately
+args = init_config()
+
+# Now import modules and variables that depend on initialized configuration
+from config import DATAPATH, TESTLOGFILE, argBounds, PlotFalse, OUTPUT_FILE
+# Update other imports to use our new modular structure
+from detection import curvesMetric
+from data_loader import testsGrouping, NTCMetric, POSMetric 
+from visualization import plotFalseDetectionCurves
+from export import save_false_detection_list, save_dual_threshold_results
+
 import logging
 import numpy as np
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -51,7 +67,7 @@ def objective_function_fp_fn(params):
     
     # Keep your original weighting logic
     weights = {
-        'fp': 1.0,
+        'fp': 2.0,
         'fnH': 1.0,
         'fnM': 1.0,
         'fnL': 1.0,
@@ -570,10 +586,6 @@ best_threshold, best_score, best_fp, best_fn, fp_weight, fn_weight = best_result
 # Create final parameter set with optimized threshold
 optimized_fp_fn_params = [*base_params[:4], best_threshold]
 
-# Log false detections with the new parameters
-# Note: Redundant call removed - this is done later after all optimization is complete
-# fp_fn_fdList = log_false_detections(optimized_fp_fn_params, "FP/FN Threshold Optimization", "FP_FN")
-
 # Run one more evaluation to show detailed breakdown
 fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, _ = curvesMetric(posCurves, negCurves, pcCurves, optimized_fp_fn_params[:4], optimized_fp_fn_params[4], optimized_fp_fn_params[4])
 logger.info("===== Final FP/FN Optimized Results =====")
@@ -691,39 +703,6 @@ if global_best_base_params is not None:  # Changed condition to check base param
 else:
     logger.warning("No global best parameters found for PC optimization")
 
-def save_dual_threshold_results(pc_fdList, target_fdList, core_params, threshold_PC, threshold_T):
-    """
-    Combine results from PC and target evaluations and save to file with dual threshold information
-    
-    Args:
-        pc_fdList (list): False detection list from PC evaluation
-        target_fdList (list): False detection list from target evaluation
-        core_params (list): Core parameters [startPt, rateTh, width_LB, avgRate_LB]
-        threshold_PC (float): Threshold for PC validation
-        threshold_T (float): Threshold for target detection
-    """
-    # Combine false detection lists
-    all_fdList = pc_fdList + target_fdList
-    
-    # Create a params list that includes the thresholds
-    save_params = core_params.copy()
-    save_params.append(f"{threshold_PC:.2f}(PC)/{threshold_T:.2f}(T)")  # Store both thresholds
-    
-    # Save the combined results
-    save_false_detection_list(all_fdList, OUTPUT_FILE, save_params)
-    
-    # Log the results
-    ivCnt_PC = len([fd for fd in pc_fdList if fd[0] == 'IV'])
-    fpCnt = len([fd for fd in target_fdList if fd[0] == 'FP'])
-    fnLCnt = len([fd for fd in target_fdList if fd[0] == 'FNL'])
-    fnMCnt = len([fd for fd in target_fdList if fd[0] == 'FNM'])
-    fnHCnt = len([fd for fd in target_fdList if fd[0] == 'FNH'])
-    
-    logger.info(f"Saved combined false detection list to {OUTPUT_FILE}")
-    logger.info(f"PC Invalid Count: {ivCnt_PC}, Target FP+FN Count: {fpCnt+fnHCnt+fnMCnt+fnLCnt}")
-    
-    return all_fdList
-
 # Combine all false detections from both optimizations for final output
 if all_results and len(all_results) > 0 and global_best_base_params is not None:
     # Get best FP/FN parameters from all_results
@@ -750,6 +729,6 @@ if all_results and len(all_results) > 0 and global_best_base_params is not None:
     fpCnt, fnHCnt, fnMCnt, fnLCnt, _, target_fdList = curvesMetric(posCurves, negCurves, [], core_params, threshold_T, threshold_T)
     
     # Save results with the new helper function
-    all_fdList = save_dual_threshold_results(pc_fdList, target_fdList, core_params, threshold_PC, threshold_T)
+    all_fdList = save_dual_threshold_results(pc_fdList, target_fdList, core_params, threshold_PC, threshold_T, OUTPUT_FILE)
 
 logger.info("Optimization completed successfully.")
