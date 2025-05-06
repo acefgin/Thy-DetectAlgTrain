@@ -7,6 +7,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import lru_cache
 import os
 import numba
+import sys
+from scipy.optimize import differential_evolution, dual_annealing
 
 # Configure logging
 logger = logging.getLogger()
@@ -20,7 +22,7 @@ posCurvesL, posCurvesM, posCurvesH, pcPOS, pos_missing_pc = POSMetric(posTests, 
 posCurves = [posCurvesL, posCurvesM, posCurvesH]
 pcCurves = pcNTC + pcPOS
 
-logger.info(f"Number of PC curves: {len(pcCurves)}")
+logger.info(f"PC curve count: {len(pcCurves)}")
 
 # Log parameters bounds
 logger.info(f"### startPt|rateTh|width_LB|avgRate_LB|threshold: {argBounds} ###")
@@ -33,7 +35,11 @@ def cached_curves_metric(params_tuple):
     params = list(params_tuple)
     # Constrain width_LB to be an integer
     params[2] = int(round(params[2]))
-    return curvesMetric(posCurves, negCurves, pcCurves, params)
+    # Extract core_params and threshold
+    core_params = params[:4]
+    threshold = params[4]
+    # Use the same threshold for both PC and target
+    return curvesMetric(posCurves, negCurves, pcCurves, core_params, threshold, threshold)
 
 # Modify your objective functions to use caching
 def objective_function_fp_fn(params):
@@ -94,6 +100,15 @@ def scale_params(params):
             scaled.append((param - bounds[i][0]) / (bounds[i][1] - bounds[i][0]))
     return scaled
 
+# Make sure initial guesses are within bounds
+def ensure_within_bounds(guess, bounds):
+    """Ensure that initial guess is within specified bounds"""
+    bounded_guess = []
+    for i, value in enumerate(guess):
+        lower, upper = bounds[i]
+        bounded_guess.append(max(lower, min(upper, value)))
+    return bounded_guess
+
 # Function to convert from scaled (0-1) parameters to original scale
 def unscale_params(scaled_params):
     unscaled = []
@@ -116,20 +131,29 @@ initial_guesses_orig = [
     [75, 9.0, 35, 4.5, 200]    # Near upper bounds
 ]
 
-# Scale the initial guesses
-initial_guesses = [scale_params(guess) for guess in initial_guesses_orig]
+# Scale the initial guesses and ensure they're within bounds
+initial_guesses = [scale_params(ensure_within_bounds(guess, bounds)) for guess in initial_guesses_orig]
 
 # Define optimization methods to try
 methods = ['Nelder-Mead', 'Powell', 'L-BFGS-B', 'TNC', 'COBYLA', 'SLSQP']
-
-# Add global optimization methods
-from scipy.optimize import differential_evolution, dual_annealing, basinhopping
 
 # Track best result across all methods and initial guesses
 best_result = None
 best_error = float('inf')
 best_method = None
 best_initial = None
+
+# Define which methods support which options to avoid OptimizeWarning
+def get_method_options(method):
+    """Return appropriate options for each optimization method"""
+    options = {}
+    if method in ['Nelder-Mead', 'Powell', 'CG', 'BFGS', 'L-BFGS-B', 'TNC', 'SLSQP', 'trust-constr']:
+        options['maxiter'] = 1000
+        
+    if method in ['CG', 'BFGS', 'Newton-CG', 'L-BFGS-B', 'TNC', 'SLSQP', 'trust-constr', 'dogleg', 'trust-ncg']:
+        options['disp'] = False
+        
+    return options
 
 # For tracking optimization progress
 all_results = []
@@ -176,18 +200,6 @@ try:
         best_initial = "global"
 except Exception as e:
     logger.debug(f"Dual Annealing failed: {str(e)}")
-
-# Define which methods support which options to avoid OptimizeWarning
-def get_method_options(method):
-    """Return appropriate options for each optimization method"""
-    options = {}
-    if method in ['Nelder-Mead', 'Powell', 'CG', 'BFGS', 'L-BFGS-B', 'TNC', 'SLSQP', 'trust-constr']:
-        options['maxiter'] = 1000
-        
-    if method in ['CG', 'BFGS', 'Newton-CG', 'L-BFGS-B', 'TNC', 'SLSQP', 'trust-constr', 'dogleg', 'trust-ncg']:
-        options['disp'] = False
-        
-    return options
 
 # Then try local optimizers with multiple starting points
 for idx, init_guess in enumerate(initial_guesses):
@@ -246,10 +258,11 @@ for param_idx, param_name in enumerate(["startPt", "rateTh", "width_LB", "avgRat
     logger.info(f"{param_name}: range = {range_val:.2f}, min = {min(values):.2f}, max = {max(values):.2f}")
 
 # Test if bounds are limiting optimization (using unscaled parameters)
-edge_params = best_result.x_unscaled
-for i in range(len(edge_params)):
-    if abs(edge_params[i] - bounds[i][0]) < 0.01 or abs(edge_params[i] - bounds[i][1]) < 0.01:
-        logger.info(f"Parameter {i} ({['startPt', 'rateTh', 'width_LB', 'avgRate_LB', 'threshold'][i]}) is at bound {bounds[i]}")
+if all_results and len(all_results) > 0:
+    edge_params = all_results[0][0].x_unscaled
+    for i in range(len(edge_params)):
+        if abs(edge_params[i] - bounds[i][0]) < 0.01 or abs(edge_params[i] - bounds[i][1]) < 0.01:
+            logger.info(f"Parameter {i} ({['startPt', 'rateTh', 'width_LB', 'avgRate_LB', 'threshold'][i]}) is at bound {bounds[i]}")
 
 def calculate_baseline_stats(negCurves, posCurves, pcCurves):
     """Calculate and log baseline statistics for curves"""
@@ -275,7 +288,7 @@ def calculate_baseline_stats(negCurves, posCurves, pcCurves):
                         max_diff = max(data_diffs)  # Maximum rate of change as rateTh
                         
                         # Find continuous regions above threshold
-                        rateTh = best_result.x_unscaled[1]  # Use unscaled parameter
+                        rateTh = all_results[0][0].x_unscaled[1] if all_results else 1.0  # Use default if no results
                         width = 0
                         max_width = 0
                         max_width_start = 0  # Start position of max width region
@@ -341,80 +354,194 @@ def calculate_baseline_stats(negCurves, posCurves, pcCurves):
 
 calculate_baseline_stats(negCurves, posCurves, pcCurves)
 
+def log_false_detections(params, method_name, error_type="FP_FN"):
+    """Log details of false detections for the given parameters"""
+    # Extract core_params and threshold
+    core_params = params[:4]
+    threshold = params[4]
+    
+    # Get all false detections - use the same threshold for both PC and target
+    _, _, _, _, _, fdList = curvesMetric(posCurves, negCurves, pcCurves, core_params, threshold, threshold)
+    
+    # Filter based on error type
+    if error_type == "FP_FN":
+        filtered_list = [fd for fd in fdList if fd[0] != 'IV']
+        error_name = "FP_FN"
+    elif error_type == "PC":
+        filtered_list = [fd for fd in fdList if fd[0] == 'IV']
+        error_name = "PC"
+    else:
+        filtered_list = fdList
+        error_name = "All"
+    
+    # Debug log to verify what's happening
+    iv_curves = [fd for fd in fdList if fd[0] == 'IV']
+    logger.info(f"DEBUG: PlotFalse={PlotFalse}, Error type={error_type}, IV curves count={len(iv_curves)}")
+    
+    logger.info(f"====== False Detection Details for {error_name} - Method: {method_name} ======")
+    logger.info(f"Parameters: startPt={params[0]:.2f}, rateTh={params[1]:.2f}, "
+               f"width_LB={int(params[2])}, avgRate_LB={params[3]:.2f}, threshold={params[4]:.2f}")
+    
+    logger.info(f"Total false detections: {len(filtered_list)}")
+    logger.info("=" * 60)
+
+    # Generate plots if enabled
+    if PlotFalse:
+        # Use parameter values from the optimization results
+        if error_type == "FP_FN":
+            plot_types = ['FP', 'FNL', 'FNM', 'FNH']
+            for plot_type in plot_types:
+                # Count how many curves of this type we have
+                type_curves = [fd for fd in fdList if fd[0] == plot_type]
+                logger.info(f"Plotting {len(type_curves)} curves of type {plot_type}")
+                
+                # Use the current methodology parameters for processing but optimized params for naming
+                save_path = f'falseDetection_{plot_type}.png'
+                plotFalseDetectionCurves(fdList, plot_type, params, save_path=save_path, max_curves_per_plot=50)
+        elif error_type == "PC":
+            # Count how many IV curves we have
+            iv_curves = [fd for fd in fdList if fd[0] == 'IV']
+            logger.info(f"Plotting {len(iv_curves)} invalid PC curves")
+            
+            # Use the current methodology parameters for processing but optimized params for naming
+            save_path = f'falseDetection_IV.png'
+            plotFalseDetectionCurves(fdList, 'IV', params, save_path=save_path, max_curves_per_plot=50)
+            
+    return fdList
+
 def objective_function_ivCnt(params):
     # Constrain width_LB to be an integer
     params[2] = int(round(params[2]))
     
+    # Extract core_params and threshold
+    core_params = params[:4]
+    threshold = params[4]
+    
     # Calculate metrics using curvesMetric function
-    _, _, _, _, ivCnt, _ = curvesMetric(posCurves, negCurves, pcCurves, params)
+    # Use threshold for both PC and target threshold, but only PC curves are passed
+    _, _, _, _, ivCnt, _ = curvesMetric(posCurves, negCurves, pcCurves, core_params, threshold, threshold)
     
     # Return ivCnt as optimization objective
     return ivCnt
 
-def objective_function_ivCnt_params(base_params, params):
-    # Use base parameters plus the threshold parameter to evaluate
-    full_params = [*base_params[:4], params[0]]
-    ivCnt = objective_function_ivCnt(full_params)
-
-    # Remove or reduce threshold penalty to allow lower thresholds to be explored
-    threshold_weight = 0.01  # Reduced from 0.05
-    penalty = threshold_weight * params[0]
-
-    return ivCnt - penalty if ivCnt != 0 else ivCnt
-
-# Module-level function for threshold evaluation to avoid pickling nested functions
-def evaluate_threshold(args):
-    """Evaluate a threshold value - callable from multiprocessing"""
-    threshold, base_params = args
-    full_params = [*base_params[:4], threshold]
-    return threshold, objective_function_ivCnt(full_params)
-
-# ----------------- OPTIMIZED THRESHOLD SEARCH -----------------
-def optimized_threshold_search(base_params, current_objective):
-    """More efficient threshold search with adaptive refinement"""
-    # Generate an initial coarse grid of threshold values
-    coarse_grid_size = 50  # Increased from 30 for more thorough search
-    threshold_grid = np.linspace(bounds[4][0], bounds[4][1], coarse_grid_size)
+# Consolidated evaluation function for both PC and FP/FN cases
+def evaluate_threshold_generic(args, optimization_type="PC"):
+    """
+    Generic threshold evaluation function for both PC and FP/FN optimization
     
-    # Evaluate initial thresholds
+    Args:
+        args: Tuple containing (threshold, base_params)
+        optimization_type: Type of optimization - "PC" for PC validation or "FP_FN" for false detection
+        
+    Returns:
+        For PC: (threshold, ivCnt)
+        For FP_FN: (threshold, score, fpCnt, fnCnt, fp_weight, fn_weight)
+    """
+    threshold, base_params = args
+    core_params = base_params[:4]
+    full_params = [*core_params, threshold]
+    
+    if optimization_type == "PC":
+        # For PC validation, only count invalid PC curves
+        _, _, _, _, ivCnt, _ = curvesMetric([[], [], []], [], pcCurves, core_params, threshold, threshold)
+        return threshold, ivCnt
+    else:  # FP_FN
+        # For FP/FN, count false positives and false negatives with weighting
+        fpCnt, fnHCnt, fnMCnt, fnLCnt, _, _ = curvesMetric(posCurves, negCurves, [], core_params, threshold, threshold)
+        
+        # Higher weight for FP to prioritize its reduction
+        fp_weight = 2.0
+        fn_weight = 1.0
+        
+        score = (fp_weight * fpCnt + 
+                fn_weight * (fnHCnt + fnMCnt + fnLCnt))
+        
+        return threshold, score, fpCnt, (fnHCnt + fnMCnt + fnLCnt), fp_weight, fn_weight
+
+# Generalized threshold optimization function
+def optimize_threshold(base_params, optimization_type="FP_FN", threshold_bounds=None):
+    """
+    Generalized threshold optimization with adaptive refinement
+    
+    Args:
+        base_params: Core parameters to use (startPt, rateTh, width_LB, avgRate_LB)
+        optimization_type: Type of optimization ("FP_FN" or "PC")
+        threshold_bounds: Optional bounds for threshold search (default: global bounds[4])
+        
+    Returns:
+        Tuple containing the best threshold and additional metrics
+    """
+    logger.info(f"Optimizing threshold for {optimization_type} using provided core parameters...")
+    
+    # Use provided bounds or global bounds
+    if threshold_bounds is None:
+        threshold_bounds = bounds[4]
+    
+    # Generate an initial coarse grid of threshold values
+    coarse_grid_size = 50
+    threshold_grid = np.linspace(threshold_bounds[0], threshold_bounds[1], coarse_grid_size)
+    
+    # Evaluate initial thresholds using the consolidated evaluation function
     results = []
     for threshold in threshold_grid:
-        result = evaluate_threshold((threshold, base_params))
+        result = evaluate_threshold_generic((threshold, base_params), optimization_type)
         results.append(result)
     
-    # Sort by ivCnt (first priority) then by threshold (prefer higher if ivCnt is equal)
+    # Sort by appropriate metric (different for FP_FN vs PC)
+    # For both cases: first sort by metric (lower is better), then by threshold (higher is better)
     results.sort(key=lambda x: (x[1], -x[0]))
     
     # Find best threshold from coarse grid
-    best_threshold, best_ivCnt = results[0]
+    best_result = results[0]
+    best_threshold = best_result[0]
     
-    # Perform refinement phase around the best threshold
+    # Log best from coarse grid
+    if optimization_type == "FP_FN":
+        _, best_score, best_fp, best_fn, _, _ = best_result
+        logger.info(f"Coarse search best: threshold={best_threshold:.2f}, FP={best_fp}, FN={best_fn}, score={best_score:.2f}")
+    else:
+        _, best_ivCnt = best_result
+        logger.info(f"Coarse search best: threshold={best_threshold:.2f}, ivCnt={best_ivCnt}")
+    
+    # Perform refinement phase around the best threshold with wider search range
     refinement_results = []
     
-    # Calculate region bounds with a buffer
-    region_size = (bounds[4][1] - bounds[4][0]) / coarse_grid_size
-    lower_bound = max(bounds[4][0], best_threshold - 2*region_size)
-    upper_bound = min(bounds[4][1], best_threshold + 2*region_size)
+    # Calculate region bounds with an expanded buffer
+    region_size = (threshold_bounds[1] - threshold_bounds[0]) / coarse_grid_size
+    lower_bound = max(threshold_bounds[0], best_threshold - 5*region_size)
     
-    # Create a finer grid in this promising region
-    fine_grid_size = 50
+    # For FP/FN, focus more on exploring higher thresholds
+    if optimization_type == "FP_FN":
+        upper_bound = min(threshold_bounds[1], best_threshold + 15*region_size)
+    else:
+        upper_bound = min(threshold_bounds[1], best_threshold + 5*region_size)
+    
+    logger.info(f"{optimization_type} fine search range: {lower_bound:.2f} to {upper_bound:.2f}")
+    
+    # Create a finer grid in this promising region with more points for better resolution
+    fine_grid_size = 80
     fine_grid = np.linspace(lower_bound, upper_bound, fine_grid_size)
     
-    # Evaluate the fine grid
+    # Evaluate the fine grid using the consolidated evaluation function
     for fine_threshold in fine_grid:
-        result = evaluate_threshold((fine_threshold, base_params))
+        result = evaluate_threshold_generic((fine_threshold, base_params), optimization_type)
         refinement_results.append(result)
     
     # Combine all results
     all_results = results + refinement_results
     
-    # Sort by ivCnt (first priority) then by threshold (prefer higher if ivCnt is equal)
+    # Sort by appropriate metric again
     all_results.sort(key=lambda x: (x[1], -x[0]))
     
-    # Return the best result
-    best_refined_threshold, best_refined_ivCnt = all_results[0]
+    # For FP/FN, log the top 5 results
+    if optimization_type == "FP_FN":
+        top_results = all_results[:5]
+        logger.info(f"Top 5 threshold values for {optimization_type}:")
+        for i, (threshold, score, fp, fn, _, _) in enumerate(top_results):
+            logger.info(f"Rank {i+1}: Threshold={threshold:.2f}, FP={fp}, FN={fn}, Total={fp+fn}, Score={score:.2f}")
     
-    return best_refined_threshold, best_refined_ivCnt
+    # Return the best result
+    return all_results[0]
 
 # Try different initial thresholds within a reasonable range
 threshold_bounds = [(bounds[4][0], bounds[4][1])]
@@ -427,6 +554,56 @@ global_best_actual_ivCnt = float('inf')
 global_best_threshold = bounds[4][1]
 global_best_base_params = None
 
+logger.info("Training ADF parameters for FP_FN optimization using ONLY the top ranked parameter set...")
+
+# Take the #1 parameter set from FP_FN optimization
+top_param_set = all_results[0]
+best_fp_fn_result, best_fp_fn_method, best_fp_fn_init_guess = top_param_set
+base_params = best_fp_fn_result.x_unscaled
+logger.info(f"Rank #1 parameters: {[round(x, 2) for x in base_params]} (Score: {best_fp_fn_result.fun:.2f})")
+
+# Run the FP/FN threshold optimization
+logger.info(f"Fine-tuning threshold for FP_FN parameter set: {[round(x, 2) for x in base_params]}")
+best_result = optimize_threshold(base_params, "FP_FN")
+best_threshold, best_score, best_fp, best_fn, fp_weight, fn_weight = best_result
+
+# Create final parameter set with optimized threshold
+optimized_fp_fn_params = [*base_params[:4], best_threshold]
+
+# Log false detections with the new parameters
+# Note: Redundant call removed - this is done later after all optimization is complete
+# fp_fn_fdList = log_false_detections(optimized_fp_fn_params, "FP/FN Threshold Optimization", "FP_FN")
+
+# Run one more evaluation to show detailed breakdown
+fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, _ = curvesMetric(posCurves, negCurves, pcCurves, optimized_fp_fn_params[:4], optimized_fp_fn_params[4], optimized_fp_fn_params[4])
+logger.info("===== Final FP/FN Optimized Results =====")
+logger.info(f"Parameters: startPt={optimized_fp_fn_params[0]:.2f}, rateTh={optimized_fp_fn_params[1]:.2f}, "
+          f"width_LB={int(optimized_fp_fn_params[2])}, avgRate_LB={optimized_fp_fn_params[3]:.2f}, threshold={optimized_fp_fn_params[4]:.2f}")
+logger.info(f"FP count: {fpCnt}")
+logger.info(f"FN High count: {fnHCnt}")
+logger.info(f"FN Medium count: {fnMCnt}")
+logger.info(f"FN Low count: {fnLCnt}")
+logger.info(f"Total FP+FN: {fpCnt+fnHCnt+fnMCnt+fnLCnt}")
+logger.info(f"Invalid PC count: {ivCnt}")
+logger.info("========================================")
+
+# Update the best result (at index 0) with the optimized threshold if it's better
+logger.info("Comparing original and fine-tuned threshold results...")
+original_fp_fn_score = best_fp_fn_result.fun
+optimized_fp_fn_score = fp_weight * fpCnt + fn_weight * (fnHCnt + fnMCnt + fnLCnt)  # Calculate using same weights
+if optimized_fp_fn_score < original_fp_fn_score:
+    logger.info(f"Fine-tuned threshold improved score from {original_fp_fn_score:.2f} to {optimized_fp_fn_score:.2f}")
+    # Create a copy of the original result and update with new threshold 
+    updated_result = best_fp_fn_result
+    updated_result.x_unscaled = optimized_fp_fn_params
+    updated_result.fun = optimized_fp_fn_score
+    # Replace in all_results
+    all_results[0] = (updated_result, best_fp_fn_method, best_fp_fn_init_guess)
+    logger.info(f"Updated rank #1 parameters to: {[round(x, 2) for x in optimized_fp_fn_params]}")
+else:
+    logger.info(f"Original threshold is better. Original score: {original_fp_fn_score:.2f}, Fine-tuned score: {optimized_fp_fn_score:.2f}")
+
+# Continue with PC validation threshold optimization
 logger.info("Training ADF parameters for PC validity using ONLY the top 3 FP_FN parameter sets...")
 
 # Take top 3 parameter sets from FP_FN optimization
@@ -441,8 +618,9 @@ for param_set_idx, (result, method, init_guess) in enumerate(top_param_sets):
     base_params = result.x_unscaled
     logger.info(f"Optimizing threshold for FP_FN parameter set #{param_set_idx+1}: {[round(x, 2) for x in base_params]}")
     
-    # Use enhanced threshold search
-    best_threshold, best_actual_ivCnt = optimized_threshold_search(base_params, objective_function_ivCnt)
+    # Use enhanced threshold search with our consolidated optimization function
+    best_result = optimize_threshold(base_params, "PC")
+    best_threshold, best_actual_ivCnt = best_result
     
     logger.info(f"Parameter set #{param_set_idx+1} - Optimized threshold - ivCnt: {best_actual_ivCnt}, threshold: {best_threshold:.2f}")
     
@@ -460,7 +638,8 @@ for param_set_idx, (result, method, init_guess) in enumerate(top_param_sets):
     base_params = result.x_unscaled.copy()
     
     # Optimize threshold one more time to ensure consistency
-    best_threshold, best_actual_ivCnt = optimized_threshold_search(base_params, objective_function_ivCnt)
+    best_result = optimize_threshold(base_params, "PC")
+    best_threshold, best_actual_ivCnt = best_result
     
     # Set the optimized threshold
     final_params = [*base_params[:4], best_threshold]
@@ -491,64 +670,11 @@ if global_best_base_params is not None:
     logger.info(f"Invalid PC count: {actual_ivCnt}")
 logger.info("======== End of PC Optimization Results ========")
 
-def log_false_detections(params, method_name, error_type="FP_FN"):
-    """Log details of false detections for the given parameters"""
-    # Get all false detections
-    _, _, _, _, _, fdList = curvesMetric(posCurves, negCurves, pcCurves, params)
-    
-    # Filter based on error type
-    if error_type == "FP_FN":
-        filtered_list = [fd for fd in fdList if fd[0] != 'IV']
-        error_name = "FP_FN"
-    elif error_type == "PC":
-        filtered_list = [fd for fd in fdList if fd[0] == 'IV']
-        error_name = "PC"
-    else:
-        filtered_list = fdList
-        error_name = "All"
-    
-    # Debug log to verify what's happening
-    iv_curves = [fd for fd in fdList if fd[0] == 'IV']
-    logger.info(f"DEBUG: PlotFalse={PlotFalse}, Error type={error_type}, IV curves count={len(iv_curves)}")
-    
-    logger.info(f"====== False Detection Details for {error_name} - Method: {method_name} ======")
-    logger.info(f"Parameters: startPt={params[0]:.2f}, rateTh={params[1]:.2f}, "
-               f"width_LB={int(params[2])}, avgRate_LB={params[3]:.2f}, threshold={params[4]:.2f}")
-    
-    for fd in filtered_list:
-        # fd[0] is detection type, fd[1] is sample_id (human-readable)
-        logger.info(f"Type: {fd[0]}, Sample ID: {fd[1]}, Channel: {fd[2]}")
-    
-    logger.info(f"Total false detections: {len(filtered_list)}")
-    logger.info("=" * 60)
-
-    # Generate plots if enabled
-    if PlotFalse:
-        # Use parameter values from the optimization results
-        if error_type == "FP_FN":
-            plot_types = ['FP', 'FNL', 'FNM', 'FNH']
-            for plot_type in plot_types:
-                # Count how many curves of this type we have
-                type_curves = [fd for fd in fdList if fd[0] == plot_type]
-                logger.info(f"Plotting {len(type_curves)} curves of type {plot_type}")
-                
-                # Use the current methodology parameters for processing but optimized params for naming
-                save_path = f'falseDetection_{plot_type}.png'
-                plotFalseDetectionCurves(fdList, plot_type, params, save_path=save_path, max_curves_per_plot=50)
-        elif error_type == "PC":
-            # Count how many IV curves we have
-            iv_curves = [fd for fd in fdList if fd[0] == 'IV']
-            logger.info(f"Plotting {len(iv_curves)} invalid PC curves")
-            
-            # Use the current methodology parameters for processing but optimized params for naming
-            save_path = f'falseDetection_IV.png'
-            plotFalseDetectionCurves(fdList, 'IV', params, save_path=save_path, max_curves_per_plot=50)
-            
-    return fdList
-
 # Log false detections for the best FP_FN parameters
-if best_result:
-    fp_fn_fdList = log_false_detections(best_result.x_unscaled, best_method, "FP_FN")
+if all_results and len(all_results) > 0:
+    best_fp_fn_params = all_results[0][0].x_unscaled
+    best_method_name = all_results[0][1]
+    fp_fn_fdList = log_false_detections(best_fp_fn_params, best_method_name, "FP_FN")
 
 # Log false detections for the best PC parameters
 pc_fdList = None
@@ -565,123 +691,65 @@ if global_best_base_params is not None:  # Changed condition to check base param
 else:
     logger.warning("No global best parameters found for PC optimization")
 
-# Combine all false detections from both optimizations for final output
-if best_result and global_best_base_params is not None:
-    # Get the most optimized parameters
-    best_params = best_result.x_unscaled.copy()
-    # Update threshold with best PC threshold
-    best_params[4] = global_best_threshold
+def save_dual_threshold_results(pc_fdList, target_fdList, core_params, threshold_PC, threshold_T):
+    """
+    Combine results from PC and target evaluations and save to file with dual threshold information
     
-    # Run once more to get all false detections with these optimized parameters
-    _, _, _, _, _, all_fdList = curvesMetric(posCurves, negCurves, pcCurves, best_params)
+    Args:
+        pc_fdList (list): False detection list from PC evaluation
+        target_fdList (list): False detection list from target evaluation
+        core_params (list): Core parameters [startPt, rateTh, width_LB, avgRate_LB]
+        threshold_PC (float): Threshold for PC validation
+        threshold_T (float): Threshold for target detection
+    """
+    # Combine false detection lists
+    all_fdList = pc_fdList + target_fdList
     
-    # Save false detection list to the specified output file
-    save_false_detection_list(all_fdList, OUTPUT_FILE, best_params)
+    # Create a params list that includes the thresholds
+    save_params = core_params.copy()
+    save_params.append(f"{threshold_PC:.2f}(PC)/{threshold_T:.2f}(T)")  # Store both thresholds
+    
+    # Save the combined results
+    save_false_detection_list(all_fdList, OUTPUT_FILE, save_params)
+    
+    # Log the results
+    ivCnt_PC = len([fd for fd in pc_fdList if fd[0] == 'IV'])
+    fpCnt = len([fd for fd in target_fdList if fd[0] == 'FP'])
+    fnLCnt = len([fd for fd in target_fdList if fd[0] == 'FNL'])
+    fnMCnt = len([fd for fd in target_fdList if fd[0] == 'FNM'])
+    fnHCnt = len([fd for fd in target_fdList if fd[0] == 'FNH'])
     
     logger.info(f"Saved combined false detection list to {OUTPUT_FILE}")
+    logger.info(f"PC Invalid Count: {ivCnt_PC}, Target FP+FN Count: {fpCnt+fnHCnt+fnMCnt+fnLCnt}")
+    
+    return all_fdList
+
+# Combine all false detections from both optimizations for final output
+if all_results and len(all_results) > 0 and global_best_base_params is not None:
+    # Get best FP/FN parameters from all_results
+    best_fp_fn_params = all_results[0][0].x_unscaled
+    
+    # Use core parameters from FP_FN optimization instead of PC optimization
+    core_params = best_fp_fn_params.copy()[:4]  # Changed from global_best_base_params
+    
+    # Define separate thresholds for PC and target detection
+    threshold_PC = global_best_threshold  # For PC validation (channel 1)
+    threshold_T = best_fp_fn_params[4]  # For target detection (channels 2-5)
+
+    # Log the dual-threshold approach
+    logger.info("Using dual threshold approach:")
+    logger.info(f"  Core parameters: startPt={core_params[0]:.2f}, rateTh={core_params[1]:.2f}, " 
+               f"width_LB={int(core_params[2])}, avgRate_LB={core_params[3]:.2f}")
+    logger.info(f"  PC threshold (ch1): {threshold_PC:.2f}")
+    logger.info(f"  Target threshold (ch2-5): {threshold_T:.2f}")
+    
+    # Run metrics for both parameter sets with the new interface
+    # For PC validation - use PC threshold for both (PC only processing)
+    _, _, _, _, ivCnt_PC, pc_fdList = curvesMetric([[], [], []], [], pcCurves, core_params, threshold_PC, threshold_PC)
+    # For target detection - use target threshold for both (target only processing)
+    fpCnt, fnHCnt, fnMCnt, fnLCnt, _, target_fdList = curvesMetric(posCurves, negCurves, [], core_params, threshold_T, threshold_T)
+    
+    # Save results with the new helper function
+    all_fdList = save_dual_threshold_results(pc_fdList, target_fdList, core_params, threshold_PC, threshold_T)
 
 logger.info("Optimization completed successfully.")
-
-# ----------------- PARALLELIZED OPTIMIZATION -----------------
-def run_optimization_task(args):
-    """Function to run a single optimization task for parallel execution"""
-    method, init_guess, scaled_bounds = args
-    try:
-        # Get appropriate options for this method
-        options = get_method_options(method)
-        
-        # Only pass options if they exist
-        if options:
-            result = minimize(
-                scaled_objective, 
-                init_guess,
-                method=method, 
-                bounds=scaled_bounds,
-                options=options
-            )
-        else:
-            result = minimize(
-                scaled_objective, 
-                init_guess,
-                method=method, 
-                bounds=scaled_bounds
-            )
-        
-        # Store unscaled parameters
-        result.x_unscaled = unscale_params(result.x)
-        return (result, method, init_guess)
-    except Exception as e:
-        logger.debug(f"Method '{method}' with initial {init_guess} failed: {str(e)}")
-        return None
-
-logger.info("Training ADF parameters with sequential optimization...")
-
-# Run optimization sequentially to avoid multiprocessing issues
-optimization_tasks = []
-for idx, init_guess in enumerate(initial_guesses):
-    for method in methods:
-        optimization_tasks.append((method, init_guess, scaled_bounds))
-
-all_results = []
-# Run sequentially instead of with multiprocessing
-for task in optimization_tasks:
-    result = run_optimization_task(task)
-    if result:
-        all_results.append(result)
-        
-        # Update best result as before
-        if result[0].success and result[0].fun < best_error:
-            best_result = result[0]
-            best_error = result[0].fun
-            best_method = result[1]
-            best_initial = result[2]
-            logger.info(f"New best result: method={best_method}, error={best_error:.2f}")
-
-# ----------------- NUMBA JIT COMPILATION -----------------
-@numba.jit(nopython=True)
-def find_continuous_regions(data_diffs, rateTh):
-    """JIT-compiled function to find continuous regions above threshold"""
-    width = 0
-    max_width = 0
-    max_width_start = 0
-    curr_start = 0
-    
-    for i, diff in enumerate(data_diffs):
-        if diff > rateTh:
-            if width == 0:
-                curr_start = i
-            width += 1
-            
-            if width > max_width:
-                max_width = width
-                max_width_start = curr_start
-        else:
-            width = 0
-            
-    return max_width, max_width_start
-
-# Add this optimized function to use inside curvesMetric
-@numba.jit(nopython=True)
-def process_curve_jit(curve_data, rateTh, width_LB, avgRate_LB):
-    """Process a single curve using JIT compilation for speed"""
-    # Calculate differences
-    data_diffs = np.zeros(len(curve_data) - 1, dtype=np.float64)
-    for i in range(len(curve_data) - 1):
-        data_diffs[i] = curve_data[i+1] - curve_data[i]
-    
-    # Find maximum rate change
-    max_diff = np.max(data_diffs) if len(data_diffs) > 0 else 0.0
-    
-    # Find continuous regions
-    max_width, max_width_start = find_continuous_regions(data_diffs, rateTh)
-    
-    # Calculate average rate
-    avg_rate = 0.0
-    if max_width > 0:
-        sum_diffs = 0.0
-        for i in range(max_width_start, max_width_start + max_width):
-            sum_diffs += data_diffs[i]
-        avg_rate = sum_diffs / max_width
-    
-    # Return results
-    return max_diff, max_width, max_width_start, avg_rate

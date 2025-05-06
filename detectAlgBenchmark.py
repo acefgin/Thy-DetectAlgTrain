@@ -27,7 +27,7 @@ DEFAULT_CONC = 10
 
 # Constants for time conversion
 TIME_CONVERSION_FACTOR = 10 / 60
-TIME_OFFSET = 5
+TIME_OFFSET = 0
 
 # Default channel layout
 DEFAULT_LAYOUT = ['PC', 'Target', 'Target', 'Target', 'Target']
@@ -51,6 +51,8 @@ parser.add_argument('-m', '--smooth-method', type=str, default='adaptive',
                     help='Signal smoothing method to use')
 parser.add_argument('-a', '--adaptive', action='store_true', default=True,
                     help='Enable adaptive window sizing for smoothing')
+parser.add_argument('-c', '--cutoff', type=float, default=None,
+                    help='Cutoff time in minutes to ignore data after (default: use all data)')
 
 
 args = parser.parse_args()
@@ -59,6 +61,7 @@ PlotFalse = args.plot
 argBounds = args.bounds
 SMOOTH_METHOD = args.smooth_method
 ADAPTIVE_SMOOTH = args.adaptive
+CUTOFF_TIME = args.cutoff
 
 DATAPATH = Path(args.data)
 TESTLOGFILE = Path(args.testlog)
@@ -88,6 +91,13 @@ if args.verbose:
 
 # Log smoothing method configuration
 logger.info(f"Using '{SMOOTH_METHOD}' smoothing method with adaptive sizing: {ADAPTIVE_SMOOTH}")
+
+# Log cutoff time if specified
+if CUTOFF_TIME is not None:
+    logger.info(f"Using cutoff time: {CUTOFF_TIME} minutes (ignoring data after this time point)")
+    print(f"Using cutoff time: {CUTOFF_TIME} minutes")
+else:
+    logger.info("No cutoff time specified - using all data points")
 
 def smooth(x, window_len=10, window='hanning', method='standard', poly_order=3, adaptive=False):
     """
@@ -503,11 +513,6 @@ def testsGrouping(testlogFile):
             logger.warning(f"Unknown sample type '{sample_type}' for Test ID {sample_id} (UID: {test_id}). Treating as outlier.")
             outliers.append(test_id)
 
-    # Log the test counts
-    logger.info(f'POS total #: {len(posTests)}, NEG total #: {len(negTests)}')
-    if outliers:
-        logger.warning(f'Found {len(outliers)} outlier tests: {outliers}')
-
     return posTests, negTests, outliers
 
 def NTCMetric(negTests, dataPath):
@@ -535,6 +540,10 @@ def NTCMetric(negTests, dataPath):
             if test_id in file_basename:
                 test_files[test_id] = filename
     
+    # Count tests with matching raw data
+    matched_data_count = 0
+    processed_test_count = 0
+    
     for test_id, test_info in negTests.items():
         # Skip if not a PC layout in channel 1
         if test_info['layout'][0].strip().upper() != 'PC':
@@ -544,6 +553,9 @@ def NTCMetric(negTests, dataPath):
             logger.debug(f"No file found for negative test ID: {test_info['sample_id']} (UID: {test_id})")
             missing_pc_info.append((test_info['sample_id'], "File not found"))
             continue
+        
+        # Count tests with matched data files
+        matched_data_count += 1
             
         filename = test_files[test_id]
         test_info_from_file, _, signalList = readRunCsv(filename)
@@ -554,6 +566,9 @@ def NTCMetric(negTests, dataPath):
             logger.debug(f"No signal data found for test ID: {sample_id} (UID: {test_id})")
             missing_pc_info.append((sample_id, os.path.basename(str(filename))))
             continue
+        
+        # Count tests that were successfully processed with valid signal data
+        processed_test_count += 1
             
         layout = test_info['layout']
         
@@ -573,13 +588,9 @@ def NTCMetric(negTests, dataPath):
                 if i < len(signalList) and signalList[i] is not None and len(signalList[i]) > 0:
                     negCurves.append([sample_id, f'ch{i+1}', signalList[i]])
     
-    logger.info(f"Number of negative curves: {len(negCurves)}")
-    
-    # Log details about missing PC curves
-    if missing_pc_info:
-        logger.warning(f"Missing PC curves from {len(missing_pc_info)} negative tests")
-        for sample_id, filename in missing_pc_info:
-            logger.warning(f"  - Test ID {sample_id}: {filename}")
+    logger.info(f"NEG test count: {processed_test_count}")
+    logger.info(f"NEG curve count: {len(negCurves)}")
+
     
     return negCurves, pcCurves, missing_pc_info
                 
@@ -610,6 +621,10 @@ def POSMetric(posTests, dataPath):
             if test_id in file_basename:
                 test_files[test_id] = filename
     
+    # Count tests with matching raw data
+    matched_data_count = 0
+    processed_test_count = 0
+    
     # Map concentration ranges to curve lists
     conc_map = {
         LOW_CONC: posCurvesL,
@@ -626,6 +641,9 @@ def POSMetric(posTests, dataPath):
             logger.debug(f"No file found for positive test ID: {test_info['sample_id']} (UID: {test_id})")
             missing_pc_info.append((test_info['sample_id'], "File not found"))
             continue
+        
+        # Count tests with matched data files
+        matched_data_count += 1
             
         filename = test_files[test_id]
         test_info_from_file, _, signalList = readRunCsv(filename)
@@ -636,6 +654,9 @@ def POSMetric(posTests, dataPath):
             logger.debug(f"No signal data found for test ID: {sample_id} (UID: {test_id})")
             missing_pc_info.append((sample_id, os.path.basename(str(filename))))
             continue
+        
+        # Count tests that were successfully processed with valid signal data
+        processed_test_count += 1
             
         layout = test_info['layout']
         conc = test_info['conc']
@@ -669,24 +690,12 @@ def POSMetric(posTests, dataPath):
                 if signalList[i] is not None and len(signalList[i]) > 0:
                     curves.append([sample_id, f'ch{i+1}', signalList[i]])
     
-    logger.info(f"Number of positive curves: {len(posCurvesL) + len(posCurvesM) + len(posCurvesH)}")
-    
-    # Log details about missing PC curves
-    if missing_pc_info:
-        logger.warning(f"Missing PC curves from {len(missing_pc_info)} positive tests")
-        for sample_id, filename in missing_pc_info:
-            logger.warning(f"  - Test ID {sample_id}: {filename}")
-    
-    # Log expected PC count from positive tests only
-    expected_pc_from_pos = sum(1 for test_info in posTests.values() 
-                              if test_info['layout'][0].strip().upper() == 'PC')
-    if len(pcCurves) != expected_pc_from_pos:
-        logger.warning(f"Expected {expected_pc_from_pos} PC curves from positive tests, found {len(pcCurves)}.")
-        logger.warning(f"This discrepancy may be due to missing files, invalid data, or tests without PC layout.")
+    logger.info(f"POS test count: {processed_test_count}")
+    logger.info(f"POS curve count: {len(posCurvesL) + len(posCurvesM) + len(posCurvesH)}")
     
     return posCurvesL, posCurvesM, posCurvesH, pcCurves, missing_pc_info
     
-def curvesMetric(posCurves, negCurves, pcCurves, paras=[DEFAULT_START_PT, DEFAULT_RATE_TH, DEFAULT_WIDTH_LB, DEFAULT_AVG_RATE_LB, DEFAULT_THRESHOLD]):
+def curvesMetric(posCurves, negCurves, pcCurves, core_params, threshold_PC=DEFAULT_THRESHOLD, threshold_T=DEFAULT_THRESHOLD):
     """
     Calculate metrics for curve classification based on given parameters
     
@@ -694,18 +703,19 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras=[DEFAULT_START_PT, DEFAUL
         posCurves (list): List of positive curves at different concentrations
         negCurves (list): List of negative curves
         pcCurves (list): List of PC curves
-        paras (list): Parameters for the detection algorithm
+        core_params (list): Core detection parameters [startPt, rateTh, width_LB, avgRate_LB]
+        threshold_PC (float): Threshold for PC curves (channel 1)
+        threshold_T (float): Threshold for target curves (channels 2-5)
         
     Returns:
         tuple: Contains counts of false positives, false negatives, invalid PCs, and detection details
     """
-    startPt, rateTh, width_LB, avgRate_LB, threshold = paras
+    startPt, rateTh, width_LB, avgRate_LB = core_params
     ivCnt, fpCnt, fnLCnt, fnMCnt, fnHCnt = 0, 0, 0, 0, 0
     
     posCurvesL, posCurvesM, posCurvesH = posCurves
     curvesDist = {'PC': pcCurves, 'NEG': negCurves, 'POSL': posCurvesL, 'POSM': posCurvesM, 'POSH': posCurvesH}
     falseDetectionList = []
-    allCurvesMetrics = []  # Store metrics for all curves
     
     for type, curves in curvesDist.items():
         for curve in curves:
@@ -714,6 +724,9 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras=[DEFAULT_START_PT, DEFAUL
             ch = curve[1]
             signal = curve[-1]
             steps, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(signal, startPt, rateTh, width_LB, avgRate_LB)
+            
+            # Use appropriate threshold based on curve type
+            threshold = threshold_PC if type == 'PC' else threshold_T
             rlt = (diff >= threshold) 
             
             # Store metrics for all curves
@@ -726,7 +739,8 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras=[DEFAULT_START_PT, DEFAUL
                 'stepWidth': stepWidth,
                 'avgRate': avgRate,
                 'maxDiff': maxDiff,
-                'qualified': rlt
+                'amplified?': rlt,
+                'threshold': threshold  # Store which threshold was used
             }
             
             # Append to falseDetectionList only if it's a false detection
@@ -761,7 +775,7 @@ def curvesMetric(posCurves, negCurves, pcCurves, paras=[DEFAULT_START_PT, DEFAUL
                         category = 'TP'  # True Positive
                 falseDetectionList.append([category, sample_id, ch, signal, curve_metrics])
             
-    logger.debug(f'startPt = {startPt}, rateTh = {rateTh}, width_LB = {width_LB}, avgRate_LB = {avgRate_LB}, threshold = {threshold}')
+    logger.debug(f'startPt = {startPt}, rateTh = {rateTh}, width_LB = {width_LB}, avgRate_LB = {avgRate_LB}, threshold_PC = {threshold_PC}, threshold_T = {threshold_T}')
     return fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, falseDetectionList
 
 def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annotations=True, max_curves_per_plot=50):
@@ -1035,7 +1049,7 @@ def save_false_detection_list(fdList, output_file=OUTPUT_FILE, params=None):
                 'StepWidth': metrics['stepWidth'],
                 'AvgRate': metrics['avgRate'],
                 'MaxDiff': metrics['maxDiff'],
-                'Qualified': metrics['qualified'],
+                'Amplified?': metrics['amplified?'],
                 'Result': get_result_description(fd_type)
             }
             
@@ -1120,3 +1134,364 @@ def get_result_description(fd_type):
     }
     
     return result_descriptions.get(fd_type, f'Unknown ({fd_type})')
+
+# A manual function to calculate the curves metrics
+# accepting a set of parameters for positive control (PC): startPt, rateTh, width_LB, avgRate_LB, threshold_PC, and a set of parameters for target (T): startPt, rateTh, width_LB, avgRate_LB, threshold_T
+# based on the overall result rules: 
+#    1) If positive control (PC) is invalid, count as invalid test
+#    2) If PC is valid, any false positive curve per sampleID makes test a false positive
+#    3) If PC is valid, all four channels (ch2, ch3, ch4, and ch5) must be false negatives to count as a false negative test
+# Calculate the confusion matrix for the tests (ground truth for testlog based on testsGrouping)
+def curvesMetric_manul(posCurves, negCurves, pcCurves, core_params, threshold_PC, threshold_T, cutoff_time=None):
+    """
+    Calculate test-level metrics using separate parameter sets for PC and target channels
+    
+    Args:
+        posCurves (list): List containing [posCurvesL, posCurvesM, posCurvesH]
+        negCurves (list): List of negative curves
+        pcCurves (list): List of PC curves
+        core_params (list): Core detection parameters [startPt, rateTh, width_LB, avgRate_LB]
+        threshold_PC (float): Threshold for PC validation (channel 1)
+        threshold_T (float): Threshold for target detection (channels 2-5)
+        cutoff_time (float, optional): Time point (in minutes) after which data points are ignored.
+            If None, all data points are used.
+        
+    Returns:
+        tuple: Contains confusion matrix counts and detailed results
+    """
+    # Extract core parameters
+    startPt, rateTh, width_LB, avgRate_LB = core_params
+    
+    # Initialize counters for confusion matrix
+    tp_count = 0  # True positive tests
+    tn_count = 0  # True negative tests
+    fp_count = 0  # False positive tests
+    fn_count = 0  # False negative tests
+    iv_count = 0  # Invalid tests (invalid PC)
+    
+    # Unpack positive curves
+    posCurvesL, posCurvesM, posCurvesH = posCurves
+    
+    # Create dictionaries to store PC evaluation results and target channel results by sample_id
+    pc_results = {}  # {sample_id: is_valid}
+    pos_target_results = {}  # {sample_id: {channel: is_positive}}
+    neg_target_results = {}  # {sample_id: {channel: is_positive}}
+    
+    # Detailed results for all curves
+    all_results = []
+    
+    # Function to trim signal based on cutoff time
+    def trim_signal(signal, cutoff=None):
+        if cutoff is None:
+            return signal
+        
+        # Convert cutoff time to array index
+        # Time formula: time = index * TIME_CONVERSION_FACTOR - TIME_OFFSET
+        # So: index = (time + TIME_OFFSET) / TIME_CONVERSION_FACTOR
+        cutoff_index = int((cutoff + TIME_OFFSET) / TIME_CONVERSION_FACTOR)
+        
+        # Ensure the cutoff index is within the valid range
+        cutoff_index = max(1, min(cutoff_index, len(signal)))
+        
+        # Return the trimmed signal
+        return signal[:cutoff_index]
+    
+    # First, evaluate all PC curves
+    for pc in pcCurves:
+        sample_id = pc[0]
+        channel = pc[1]
+        signal = pc[2]
+        
+        # Trim signal if cutoff_time is specified
+        trimmed_signal = trim_signal(signal, cutoff_time)
+        
+        # Apply detection algorithm with core parameters
+        steps, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(
+            trimmed_signal, startPt, rateTh, width_LB, avgRate_LB)
+        
+        # PC is valid if diff >= threshold_PC
+        is_pc_valid = (diff >= threshold_PC)
+        
+        # Store PC result for this sample
+        pc_results[sample_id] = is_pc_valid
+        
+        # Save detailed metrics
+        curve_metrics = {
+            'sample_id': sample_id,
+            'channel': channel,
+            'type': 'PC',
+            'diff': diff,
+            'cp': cp,
+            'stepWidth': stepWidth,
+            'avgRate': avgRate,
+            'maxDiff': maxDiff,
+            'amplified?': is_pc_valid,
+            'test_result': 'Valid PC' if is_pc_valid else 'Invalid PC',
+            'cutoff_time': cutoff_time,
+            'threshold': threshold_PC
+        }
+        
+        # Add to results list with category
+        all_results.append(['VALID' if is_pc_valid else 'IV', sample_id, channel, trimmed_signal, curve_metrics])
+    
+    # Next, evaluate all positive target curves
+    for curve_group in [posCurvesL, posCurvesM, posCurvesH]:
+        for curve in curve_group:
+            sample_id = curve[0]
+            channel = curve[1]
+            signal = curve[2]
+            
+            # Trim signal if cutoff_time is specified
+            trimmed_signal = trim_signal(signal, cutoff_time)
+            
+            # Apply detection algorithm with target parameters
+            steps, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(
+                trimmed_signal, startPt, rateTh, width_LB, avgRate_LB)
+            
+            # Target is positive if diff >= threshold_T
+            is_positive = (diff >= threshold_T)
+            
+            # Initialize dictionary for this sample if not exists
+            if sample_id not in pos_target_results:
+                pos_target_results[sample_id] = {}
+            
+            # Store result for this channel
+            pos_target_results[sample_id][channel] = is_positive
+            
+            # Save detailed metrics
+            curve_metrics = {
+                'sample_id': sample_id,
+                'channel': channel,
+                'type': 'TARGET_POS',
+                'diff': diff,
+                'cp': cp,
+                'stepWidth': stepWidth,
+                'avgRate': avgRate,
+                'maxDiff': maxDiff,
+                'amplified?': is_positive,
+                'test_result': 'True Positive' if is_positive else 'False Negative',
+                'cutoff_time': cutoff_time,
+                'threshold': threshold_T
+            }
+            
+            # Add to results list with appropriate category
+            category = 'TP' if is_positive else 'FN'
+            all_results.append([category, sample_id, channel, trimmed_signal, curve_metrics])
+    
+    # Evaluate all negative target curves
+    for curve in negCurves:
+        sample_id = curve[0]
+        channel = curve[1]
+        signal = curve[2]
+        
+        # Trim signal if cutoff_time is specified
+        trimmed_signal = trim_signal(signal, cutoff_time)
+        
+        # Apply detection algorithm with target parameters
+        steps, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(
+            trimmed_signal, startPt, rateTh, width_LB, avgRate_LB)
+        
+        # Target should be negative (is_positive should be False)
+        is_positive = (diff >= threshold_T)
+        
+        # Initialize dictionary for this sample if not exists
+        if sample_id not in neg_target_results:
+            neg_target_results[sample_id] = {}
+        
+        # Store result for this channel
+        neg_target_results[sample_id][channel] = is_positive
+        
+        # Save detailed metrics
+        curve_metrics = {
+            'sample_id': sample_id,
+            'channel': channel,
+            'type': 'TARGET_NEG',
+            'diff': diff,
+            'cp': cp,
+            'stepWidth': stepWidth,
+            'avgRate': avgRate,
+            'maxDiff': maxDiff,
+            'amplified?': not is_positive,  # For negatives, qualified means NOT positive
+            'test_result': 'True Negative' if not is_positive else 'False Positive',
+            'cutoff_time': cutoff_time,
+            'threshold': threshold_T
+        }
+        
+        # Add to results list with appropriate category
+        category = 'TN' if not is_positive else 'FP'
+        all_results.append([category, sample_id, channel, trimmed_signal, curve_metrics])
+    
+    # Now evaluate overall test results based on the rules
+    
+    # Track samples that have been counted
+    counted_samples = set()
+    
+    # Process positive samples
+    for sample_id, channel_results in pos_target_results.items():
+        # Skip if already counted or no PC result
+        if sample_id in counted_samples or sample_id not in pc_results:
+            continue
+        
+        # Rule 1: If PC is invalid, count as invalid test
+        if not pc_results[sample_id]:
+            iv_count += 1
+            # Add detailed logging to track tests with data but invalid PC
+            logger.info(f"Sample {sample_id} has data but invalid PC - counted as invalid test")
+            counted_samples.add(sample_id)
+            continue
+        
+        # Rule 3: If all four channels are false negatives, count as false negative test
+        # First check if we have results for channels 2-5
+        has_all_channels = all(f'ch{i}' in channel_results for i in range(2, 6))
+        
+        if has_all_channels:
+            # Check if all channels are negative
+            all_negative = all(not is_positive for channel, is_positive in channel_results.items())
+            
+            if all_negative:
+                fn_count += 1
+            else:
+                tp_count += 1
+        else:
+            # If we don't have all channels, check if any is positive
+            any_positive = any(is_positive for channel, is_positive in channel_results.items())
+            
+            if any_positive:
+                tp_count += 1
+            else:
+                # If we only have negative results but not all channels, count as false negative
+                fn_count += 1
+        
+        counted_samples.add(sample_id)
+    
+    # Process negative samples
+    for sample_id, channel_results in neg_target_results.items():
+        # Skip if already counted or no PC result
+        if sample_id in counted_samples or sample_id not in pc_results:
+            continue
+        
+        # Rule 1: If PC is invalid, count as invalid test
+        if not pc_results[sample_id]:
+            iv_count += 1
+            # Add detailed logging to track tests with data but invalid PC
+            logger.info(f"Sample {sample_id} has data but invalid PC - counted as invalid test")
+            counted_samples.add(sample_id)
+            continue
+        
+        # Rule 2: If any channel is false positive, count as false positive test
+        any_positive = any(is_positive for channel, is_positive in channel_results.items())
+        
+        if any_positive:
+            fp_count += 1
+        else:
+            tn_count += 1
+        
+        counted_samples.add(sample_id)
+    
+    # Handle samples that only have PC results (no target channels)
+    for sample_id, is_valid in pc_results.items():
+        if sample_id in counted_samples:
+            continue
+        
+        if not is_valid:
+            iv_count += 1
+            # Add detailed logging to track tests with data but invalid PC
+            logger.info(f"Sample {sample_id} has data but invalid PC - counted as invalid test")
+            counted_samples.add(sample_id)
+        else:
+            # Count valid PC with no target channels as indeterminate (without logging)
+            iv_count += 1  # Consider as invalid/indeterminate
+            counted_samples.add(sample_id)
+    
+    # After processing PC results, check for tests with target data but no PC results
+    # These are still valid tests that need to be counted
+    
+    # First, find all sample IDs with target channel data
+    target_sample_ids = set(sample_id for sample_id in pos_target_results.keys()) | \
+                       set(sample_id for sample_id in neg_target_results.keys())
+    
+    # Find samples with target data but no PC results
+    samples_with_target_no_pc = target_sample_ids - set(pc_results.keys())
+    
+    for sample_id in samples_with_target_no_pc:
+        if sample_id in counted_samples:
+            continue
+            
+        # Count these as invalid tests due to missing PC
+        iv_count += 1
+        logger.info(f"Sample {sample_id} has target data but no PC data - counted as invalid test")
+        counted_samples.add(sample_id)
+    
+    # Track samples with no data at all, but DO NOT count them as invalid
+    all_sample_ids = set(posTests.keys()) | set(negTests.keys())
+    missing_samples = all_sample_ids - counted_samples
+    for sample_id in missing_samples:
+        # Note: not incrementing iv_count anymore
+        counted_samples.add(sample_id)
+    
+    # Print the parameters
+    logger.info(f'Core parameters: startPt={startPt}, rateTh={rateTh}, width_LB={width_LB}, avgRate_LB={avgRate_LB}')
+    logger.info(f'PC threshold: {threshold_PC}, Target threshold: {threshold_T}')
+    if cutoff_time is not None:
+        logger.info(f'Using cutoff time: {cutoff_time} minutes')
+    
+    # Print results for debugging
+    logger.info(f'Test-level results: TP={tp_count}, TN={tn_count}, FP={fp_count}, FN={fn_count}, IV={iv_count}')
+    # Print the confusion matrix in precision, recall, F1 score, and accuracy
+    precision = round(tp_count / (tp_count + fp_count), 2) if (tp_count + fp_count) > 0 else 0
+    recall = round(tp_count / (tp_count + fn_count), 2) if (tp_count + fn_count) > 0 else 0
+    f1_score = round(2 * precision * recall / (precision + recall), 2) if (precision + recall) > 0 else 0
+    accuracy = round((tp_count + tn_count) / (tp_count + tn_count + fp_count + fn_count), 2) if (tp_count + tn_count + fp_count + fn_count) > 0 else 0
+    logger.info(f'Precision: {precision}, Recall: {recall}, F1 score: {f1_score}, Accuracy: {accuracy}')
+    
+    # Print confusion matrix as a table
+    logger.info("Confusion Matrix:")
+    logger.info(f"{'=' * 54}")
+    logger.info(f"| {'':<16} | {'Actual Positive':<12} | {'Actual Negative':<12} |")
+    logger.info(f"|{'-' * 18}|{'-' * 14}|{'-' * 14}|")
+    logger.info(f"| {'Predicted Pos':<16} | {tp_count:<12} | {fp_count:<12} |")
+    logger.info(f"| {'Predicted Neg':<16} | {fn_count:<12} | {tn_count:<12} |")
+    logger.info(f"{'=' * 54}")
+    
+    # Print metrics table
+    logger.info("Performance Metrics:") 
+    logger.info(f"{'=' * 32}")
+    logger.info(f"| {'Metric':<12} | {'Value':<10} |")
+    logger.info(f"|{'-' * 14}|{'-' * 12}|")
+    logger.info(f"| {'Precision':<12} | {precision:<10.2f} |")
+    logger.info(f"| {'Recall':<12} | {recall:<10.2f} |")
+    logger.info(f"| {'F1 Score':<12} | {f1_score:<10.2f} |")
+    logger.info(f"| {'Accuracy':<12} | {accuracy:<10.2f} |")
+    logger.info(f"| {'Invalid':<12} | {iv_count:<10} |")
+    logger.info(f"{'=' * 32}")
+    
+    return tp_count, tn_count, fp_count, fn_count, iv_count, all_results
+
+if __name__ == "__main__":
+    # Import and group tests
+    posTests, negTests, outliers = testsGrouping(TESTLOGFILE)
+
+    # Get curves and track missing PC info
+    negCurves, pcNTC, neg_missing_pc = NTCMetric(negTests, DATAPATH)
+    posCurvesL, posCurvesM, posCurvesH, pcPOS, pos_missing_pc = POSMetric(posTests, DATAPATH)
+    posCurves = [posCurvesL, posCurvesM, posCurvesH]
+    pcCurves = pcNTC + pcPOS
+
+    # Define parameters
+    op_rateTh = 0.67
+    op_width_LB = 15
+    op_avgRate_LB = 1.62
+    op_threshold_PC = 90
+    op_threshold_T = 100
+    
+    # Core parameters common to both PC and target
+    core_params = [DEFAULT_START_PT, op_rateTh, op_width_LB, op_avgRate_LB]
+    
+    # Calculate the curves metrics
+    fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, _ = curvesMetric_manul(
+        posCurves, negCurves, pcCurves, 
+        core_params, op_threshold_PC, op_threshold_T, 
+        CUTOFF_TIME
+    )
+
+    
