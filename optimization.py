@@ -15,16 +15,15 @@ from config import DATAPATH, TESTLOGFILE, argBounds, PlotFalse, OUTPUT_FILE
 from detection import curvesMetric
 from data_loader import testsGrouping, NTCMetric, POSMetric 
 from visualization import plotFalseDetectionCurves
-from export import save_false_detection_list, save_dual_threshold_results
+from export import save_dual_threshold_results
 
 import logging
 import numpy as np
-from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import lru_cache
 import os
 import numba
-import sys
 from scipy.optimize import differential_evolution, dual_annealing
+import matplotlib.pyplot as plt
 
 # Configure logging
 logger = logging.getLogger()
@@ -39,6 +38,243 @@ posCurves = [posCurvesL, posCurvesM, posCurvesH]
 pcCurves = pcNTC + pcPOS
 
 logger.info(f"PC curve count: {len(pcCurves)}")
+
+# Optimization monitoring class
+class OptimizationMonitor:
+    def __init__(self, method_name, initial_guess=None):
+        self.method_name = method_name
+        self.initial_guess = initial_guess
+        self.iterations = []
+        self.func_vals = []
+        self.best_func_vals = []
+        self.fp_counts = []
+        self.fn_counts = []
+        self.iteration_count = 0
+        
+    def callback(self, xk, convergence=None):
+        """Callback function for optimization methods"""
+        # Different optimization methods have different callback signatures
+        self.iteration_count += 1
+        
+        # Calculate function value and FP/FN counts
+        func_val = scaled_objective(xk)
+        
+        # Track raw function values
+        self.iterations.append(self.iteration_count)
+        self.func_vals.append(func_val)
+        
+        # Get detailed FP/FN counts for this parameter set
+        unscaled_params = unscale_params(xk)
+        # Use only the core parameters and threshold
+        core_params = unscaled_params[:4]
+        threshold = unscaled_params[4]
+        
+        # Get metrics using curvesMetric
+        fpCnt, fnHCnt, fnMCnt, fnLCnt, _, _ = curvesMetric(posCurves, negCurves, [], core_params, threshold, threshold)
+        total_fn = fnHCnt + fnMCnt + fnLCnt
+        
+        # Store FP and FN counts
+        self.fp_counts.append(fpCnt)
+        self.fn_counts.append(total_fn)
+        
+        # Track best function value seen so far
+        if not self.best_func_vals:
+            self.best_func_vals.append(func_val)
+        else:
+            self.best_func_vals.append(min(func_val, self.best_func_vals[-1]))
+        
+        return False  # Continue optimization
+
+def plot_optimization_convergence(monitors, filename='optimization_convergence.png'):
+    """Plot convergence data from optimization monitors"""
+    plt.figure(figsize=(15, 10))
+    
+    # Create a color cycle to use consistently across subplots
+    prop_cycle = plt.rcParams['axes.prop_cycle']
+    colors = prop_cycle.by_key()['color']
+    
+    # Log available monitors for debugging
+    logger.info(f"Available optimization monitors: {[m.method_name for m in monitors]}")
+    logger.info(f"Monitor data points: {[(m.method_name, len(m.iterations)) for m in monitors]}")
+    
+    # Filter monitors to focus on DE, DA, and find the best local optimizer
+    global_monitors = [m for m in monitors if m.method_name in ['DE', 'DA']]
+    local_monitors = [m for m in monitors if m.method_name not in ['DE', 'DA']]
+    
+    # Log global monitors for debugging
+    logger.info(f"Global monitors: {[m.method_name for m in global_monitors]}")
+    for gm in global_monitors:
+        logger.info(f"{gm.method_name} data: iterations={len(gm.iterations)}, func_vals={len(gm.func_vals)}")
+        if gm.method_name == 'DA' and gm.iterations:
+            logger.info(f"DA sample data: {list(zip(gm.iterations[:5], gm.func_vals[:5]))}...")
+    
+    # Find the best local optimization monitor based on the final function value
+    best_local_monitor = None
+    best_local_value = float('inf')
+    for monitor in local_monitors:
+        if monitor.func_vals and monitor.func_vals[-1] < best_local_value:
+            best_local_value = monitor.func_vals[-1]
+            best_local_monitor = monitor
+    
+    # Selected monitors to display
+    selected_monitors = global_monitors.copy()
+    if best_local_monitor:
+        selected_monitors.append(best_local_monitor)
+    
+    logger.info(f"Selected monitors for display: {[m.method_name for m in selected_monitors]}")
+    
+    # Plot raw function values
+    plt.subplot(2, 1, 1)
+    for i, monitor in enumerate(selected_monitors):
+        if monitor.iterations and monitor.func_vals:
+            color_idx = i % len(colors)
+            color = colors[color_idx]
+            
+            # Create concise label
+            if monitor.method_name in ['DE', 'DA']:
+                label = f"{monitor.method_name}"
+            else:
+                # For local methods, show method name and shortened initial guess
+                label = f"Best Local: {monitor.method_name}"
+                
+            plt.plot(monitor.iterations, monitor.func_vals, label=label, marker='o', markersize=3, color=color)
+    
+    plt.xlabel('Iteration')
+    plt.ylabel('Objective Value')
+    plt.title('Optimization Progress - Objective Function Value')
+    plt.legend(loc='upper right', fontsize='medium')
+    plt.grid(True)
+    
+    # Plot FP and FN counts for each method
+    plt.subplot(2, 1, 2)
+    for i, monitor in enumerate(selected_monitors):
+        if monitor.iterations and monitor.fp_counts and monitor.fn_counts:
+            color_idx = i % len(colors)
+            method_color = colors[color_idx]
+            
+            # Create concise label
+            if monitor.method_name in ['DE', 'DA']:
+                fp_label = f"{monitor.method_name} FP"
+                fn_label = f"{monitor.method_name} FN"
+            else:
+                fp_label = f"Best Local FP"
+                fn_label = f"Best Local FN"
+                
+            plt.plot(monitor.iterations, monitor.fp_counts, label=fp_label, color=method_color, linestyle='-', marker='o', markersize=3)
+            plt.plot(monitor.iterations, monitor.fn_counts, label=fn_label, color=method_color, linestyle='--', marker='x', markersize=3)
+    
+    plt.xlabel('Iteration')
+    plt.ylabel('Count')
+    plt.title('False Positive (solid) and False Negative (dashed) Counts')
+    plt.legend(loc='upper right', fontsize='medium')
+    plt.grid(True)
+    
+    # Add a title for the entire figure
+    plt.suptitle('Optimization Convergence', fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.97])  # Make room for the suptitle
+    plt.savefig(filename)
+    plt.close()
+    
+    # Log which methods were displayed
+    logger.info(f"Saved focused optimization convergence plot to {filename}")
+    logger.info(f"Displayed global optimizers: {[m.method_name for m in global_monitors]}")
+    if best_local_monitor:
+        logger.info(f"Best local optimizer: {best_local_monitor.method_name} with score {best_local_value:.2f}")
+    else:
+        logger.info("No local optimizer results available")
+
+# ------------------CURVES STATISTICS--------------------
+
+def calculate_baseline_stats(negCurves, posCurves, pcCurves):
+    """Calculate and log baseline statistics for curves"""
+    def _avg_stats(curves):
+        """Calculate average statistics for a set of curves"""
+        if not curves:
+            return 0, 0, 0
+            
+        stats = {'max_rate': 0, 'max_delta': 0, 'avg_rate': 0}
+        count = 0
+        
+        for curve in curves:
+            if isinstance(curve, (list, tuple)) and len(curve) >= 3:
+                try:
+                    # Get numpy array data
+                    curve_data = curve[2]
+                    
+                    if hasattr(curve_data, '__len__'):  # Check if it's an array
+                        # Calculate curve differences
+                        data_diffs = curve_data[1:] - curve_data[:-1]
+                        
+                        # Calculate statistics based on labelSteps strategy
+                        max_diff = max(data_diffs)  # Maximum rate of change as rateTh
+                        
+                        # Find continuous regions above threshold
+                        rateTh = 1.0  
+                        width = 0
+                        max_width = 0
+                        max_width_start = 0  # Start position of max width region
+                        curr_start = 0  # Start position of current region
+                        
+                        for i, diff in enumerate(data_diffs):
+                            if diff > rateTh:
+                                if width == 0:
+                                    curr_start = i
+                                width += 1
+
+                                if width > max_width:
+                                    max_width = width
+                                    max_width_start = curr_start
+                            else:
+                                width = 0
+                                
+                        # Calculate average rate of change in max width region
+                        if max_width > 0:
+                            max_width_diffs = data_diffs[max_width_start:max_width_start+max_width]
+                            avg_rate = sum(max_width_diffs)/len(max_width_diffs)
+                            max_delta = sum(max_width_diffs)  # Maximum delta
+                        else:
+                            avg_rate = 0
+                            max_delta = 0
+                            
+                        stats['max_rate'] += max_diff
+                        stats['max_delta'] += max_delta
+                        stats['avg_rate'] += avg_rate
+                        count += 1
+                                       
+                except (ValueError, TypeError, IndexError) as e:
+                    logger.debug(f"Error processing curve: {e}")
+                    continue
+                    
+        if count == 0:
+            return 0, 0, 0
+            
+        return (stats['max_rate']/count, stats['max_delta']/count, stats['avg_rate']/count)
+
+    # Calculate and log statistics
+    logger.info("======== Baseline Statistics ========")
+    
+    for curves, name in [(negCurves, "Negative"), (pcCurves, "PC")]:
+        max_rate, max_delta, avg_rate = _avg_stats(curves)
+        logger.info(f"{name} Curves Baseline:")
+        logger.info(f"Average max_rate: {max_rate:.2f}")
+        logger.info(f"Average max_delta: {max_delta:.2f}")
+        logger.info(f"Average avgRate_LB: {avg_rate:.2f}")
+
+    # Handle low, mid and high curves separately
+    posCurvesName = ["Low", "Mid", "High"]
+    for name, curves in zip(posCurvesName, posCurves):
+        if not curves:
+            continue
+        max_rate, max_delta, avg_rate = _avg_stats(curves)
+        logger.info(f"{name} Positive Curves Baseline:")
+        logger.info(f"Average max_rate: {max_rate:.2f}")
+        logger.info(f"Average max_delta: {max_delta:.2f}")
+        logger.info(f"Average avgRate_LB: {avg_rate:.2f}")
+
+    logger.info("======== End of Baseline Statistics ========")
+
+calculate_baseline_stats(negCurves, posCurves, pcCurves)
+
 
 # Log parameters bounds
 logger.info(f"### startPt|rateTh|width_LB|avgRate_LB|threshold: {argBounds} ###")
@@ -159,6 +395,9 @@ best_error = float('inf')
 best_method = None
 best_initial = None
 
+# Store all optimization monitors
+optimization_monitors = []
+
 # Define which methods support which options to avoid OptimizeWarning
 def get_method_options(method):
     """Return appropriate options for each optimization method"""
@@ -168,6 +407,13 @@ def get_method_options(method):
         
     if method in ['CG', 'BFGS', 'Newton-CG', 'L-BFGS-B', 'TNC', 'SLSQP', 'trust-constr', 'dogleg', 'trust-ncg']:
         options['disp'] = False
+    
+    # Remove unsupported options for COBYLA
+    if method == 'COBYLA':
+        # COBYLA doesn't support maxiter, but it does support maxfun
+        if 'maxiter' in options:
+            options.pop('maxiter')
+            options['maxfun'] = 1000
         
     return options
 
@@ -179,12 +425,16 @@ logger.info("Training ADF parameters with enhanced optimization and parameter sc
 # Try global optimization methods first
 try:
     # Try differential evolution (a global optimizer)
+    de_monitor = OptimizationMonitor("DE", "global")
+    optimization_monitors.append(de_monitor)
+    
     result = differential_evolution(
         scaled_objective, 
         scaled_bounds,
         maxiter=100,
         popsize=15,
-        tol=0.01
+        tol=0.01,
+        callback=de_monitor.callback
     )
     # Store result with unscaled parameters for later use
     result.x_unscaled = unscale_params(result.x)
@@ -200,10 +450,19 @@ except Exception as e:
 
 try:
     # Try dual annealing (another global optimizer)
+    da_monitor = OptimizationMonitor("DA", "global")
+    optimization_monitors.append(da_monitor)
+    
+    # Define a custom callback function to ensure it works correctly with DA
+    def da_callback(x, f, context):
+        da_monitor.callback(x)
+        return False  # Continue optimization
+    
     result = dual_annealing(
         scaled_objective, 
         scaled_bounds,
-        maxiter=1000
+        maxiter=1000,
+        callback=da_callback
     )
     # Store result with unscaled parameters for later use
     result.x_unscaled = unscale_params(result.x)
@@ -214,6 +473,9 @@ try:
         best_error = result.fun
         best_method = "Dual Annealing"
         best_initial = "global"
+        
+    # Check if DA monitor collected data
+    logger.info(f"DA monitor data: iterations={len(da_monitor.iterations)}, values={len(da_monitor.func_vals)}")
 except Exception as e:
     logger.debug(f"Dual Annealing failed: {str(e)}")
 
@@ -225,6 +487,10 @@ for idx, init_guess in enumerate(initial_guesses):
             # Get appropriate options for this method
             options = get_method_options(method)
             
+            # Create a monitor for this optimization run
+            method_monitor = OptimizationMonitor(method, orig_guess)
+            optimization_monitors.append(method_monitor)
+            
             # Only pass options if they exist
             if options:
                 result = minimize(
@@ -232,6 +498,7 @@ for idx, init_guess in enumerate(initial_guesses):
                     init_guess,
                     method=method, 
                     bounds=scaled_bounds,
+                    callback=method_monitor.callback,
                     options=options
                 )
             else:
@@ -239,7 +506,8 @@ for idx, init_guess in enumerate(initial_guesses):
                     scaled_objective, 
                     init_guess,
                     method=method, 
-                    bounds=scaled_bounds
+                    bounds=scaled_bounds,
+                    callback=method_monitor.callback
                 )
             
             # Store result with unscaled parameters for later use
@@ -254,6 +522,9 @@ for idx, init_guess in enumerate(initial_guesses):
         except Exception as e:
             logger.debug(f"Method '{method}' with initial {orig_guess} failed: {str(e)}")
             continue
+
+# Generate convergence plot after all optimization methods have completed
+plot_optimization_convergence(optimization_monitors, 'optimization_convergence.png')
 
 # Sort all results by performance
 all_results.sort(key=lambda x: x[0].fun)
@@ -280,95 +551,7 @@ if all_results and len(all_results) > 0:
         if abs(edge_params[i] - bounds[i][0]) < 0.01 or abs(edge_params[i] - bounds[i][1]) < 0.01:
             logger.info(f"Parameter {i} ({['startPt', 'rateTh', 'width_LB', 'avgRate_LB', 'threshold'][i]}) is at bound {bounds[i]}")
 
-def calculate_baseline_stats(negCurves, posCurves, pcCurves):
-    """Calculate and log baseline statistics for curves"""
-    def _avg_stats(curves):
-        """Calculate average statistics for a set of curves"""
-        if not curves:
-            return 0, 0, 0
-            
-        stats = {'max_rate': 0, 'max_delta': 0, 'avg_rate': 0}
-        count = 0
-        
-        for curve in curves:
-            if isinstance(curve, (list, tuple)) and len(curve) >= 3:
-                try:
-                    # Get numpy array data
-                    curve_data = curve[2]
-                    
-                    if hasattr(curve_data, '__len__'):  # Check if it's an array
-                        # Calculate curve differences
-                        data_diffs = curve_data[1:] - curve_data[:-1]
-                        
-                        # Calculate statistics based on labelSteps strategy
-                        max_diff = max(data_diffs)  # Maximum rate of change as rateTh
-                        
-                        # Find continuous regions above threshold
-                        rateTh = all_results[0][0].x_unscaled[1] if all_results else 1.0  # Use default if no results
-                        width = 0
-                        max_width = 0
-                        max_width_start = 0  # Start position of max width region
-                        curr_start = 0  # Start position of current region
-                        
-                        for i, diff in enumerate(data_diffs):
-                            if diff > rateTh:
-                                if width == 0:
-                                    curr_start = i
-                                width += 1
 
-                                if width > max_width:
-                                    max_width = width
-                                    max_width_start = curr_start
-                            else:
-                                width = 0
-                                
-                        # Calculate average rate of change in max width region
-                        if max_width > 0:
-                            max_width_diffs = data_diffs[max_width_start:max_width_start+max_width]
-                            avg_rate = sum(max_width_diffs)/len(max_width_diffs)
-                            max_delta = sum(max_width_diffs)  # Maximum delta
-                        else:
-                            avg_rate = 0
-                            max_delta = 0
-                            
-                        stats['max_rate'] += max_diff
-                        stats['max_delta'] += max_delta
-                        stats['avg_rate'] += avg_rate
-                        count += 1
-                                       
-                except (ValueError, TypeError, IndexError) as e:
-                    logger.debug(f"Error processing curve: {e}")
-                    continue
-                    
-        if count == 0:
-            return 0, 0, 0
-            
-        return (stats['max_rate']/count, stats['max_delta']/count, stats['avg_rate']/count)
-
-    # Calculate and log statistics
-    logger.info("======== Baseline Statistics ========")
-    
-    for curves, name in [(negCurves, "Negative"), (pcCurves, "PC")]:
-        max_rate, max_delta, avg_rate = _avg_stats(curves)
-        logger.info(f"{name} Curves Baseline:")
-        logger.info(f"Average max_rate: {max_rate:.2f}")
-        logger.info(f"Average max_delta: {max_delta:.2f}")
-        logger.info(f"Average avgRate_LB: {avg_rate:.2f}")
-
-    # Handle low, mid and high curves separately
-    posCurvesName = ["Low", "Mid", "High"]
-    for name, curves in zip(posCurvesName, posCurves):
-        if not curves:
-            continue
-        max_rate, max_delta, avg_rate = _avg_stats(curves)
-        logger.info(f"{name} Positive Curves Baseline:")
-        logger.info(f"Average max_rate: {max_rate:.2f}")
-        logger.info(f"Average max_delta: {max_delta:.2f}")
-        logger.info(f"Average avgRate_LB: {avg_rate:.2f}")
-
-    logger.info("======== End of Baseline Statistics ========")
-
-calculate_baseline_stats(negCurves, posCurves, pcCurves)
 
 def log_false_detections(params, method_name, error_type="FP_FN"):
     """Log details of false detections for the given parameters"""
