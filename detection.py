@@ -55,6 +55,14 @@ def labelSteps(datas, startPt=DEFAULT_START_PT, rateTh=DEFAULT_RATE_TH,
     maxDiff = 0
     maxIndex = 0
     stepWidth = 0
+
+    stepDiff_nonLAMP = 0
+    cp_nonLAMP = 0
+    maxIndex_nonLAMP = 0
+    maxDiff_nonLAMP = 0
+    stepWidth_nonLAMP = 0
+    avgRate_nonLAMP = 0  # Initialize here to avoid reference before assignment
+    
     for step in listOfSteps:
         if step[-1]:
             index = step[0] - 1
@@ -78,12 +86,43 @@ def labelSteps(datas, startPt=DEFAULT_START_PT, rateTh=DEFAULT_RATE_TH,
                     adjusted_index = maxIndex - datas[maxIndex + 1] / dataDiffs[maxIndex]
                 # Convert to minutes
                 cp = adjusted_index * TIME_CONVERSION_FACTOR - TIME_OFFSET
+        else:
+            index = step[0] - 1
+            stepWidth_nonLAMP += step[1] - step[0] + 1
+            # Calculate metrics for non-LAMP steps
+            while index < step[1] + 1:
+                stepDiff_nonLAMP = stepDiff_nonLAMP + dataDiffs[index]
+                 # Capture time for highest diff as Cp
+                if dataDiffs[index] >= maxDiff_nonLAMP:
+                    maxDiff_nonLAMP = dataDiffs[index]
+                    maxIndex_nonLAMP = index
+                index += 1
+
+            # Calculate Cp: Adjusts maxIndex by the ratio of signal to rate at that point
+            # Then converts to minutes using TIME_CONVERSION_FACTOR and adjusts by TIME_OFFSET
+            if len(datas) > 10 and maxIndex_nonLAMP < len(datas)-1 and maxIndex_nonLAMP < len(dataDiffs):
+                # Adjust index by the ratio of signal to rate
+                adjusted_index = maxIndex_nonLAMP
+                if dataDiffs[maxIndex_nonLAMP] > 0:  # Prevent division by zero
+                    adjusted_index = maxIndex_nonLAMP - datas[maxIndex_nonLAMP + 1] / dataDiffs[maxIndex_nonLAMP]
+                # Convert to minutes
+                cp_nonLAMP = adjusted_index * TIME_CONVERSION_FACTOR - TIME_OFFSET
                 
     avgRate = 0
     if stepWidth != 0: 
         avgRate = stepDiff/stepWidth
+    if stepWidth_nonLAMP != 0:
+        avgRate_nonLAMP = stepDiff_nonLAMP/stepWidth_nonLAMP
     
-    return listOfSteps, np.round(stepDiff, 1), round(cp, 1), round(stepWidth, 1), round(avgRate, 1), np.round(maxDiff, 1)
+    LAMP_step = False
+    if stepWidth != 0:
+        LAMP_step = True
+        ans = [listOfSteps, np.round(stepDiff, 1), round(cp, 1), round(stepWidth, 1), round(avgRate, 1), np.round(maxDiff, 1), LAMP_step]
+    else:
+        LAMP_step = False
+        ans = [listOfSteps, np.round(stepDiff_nonLAMP, 1), round(cp_nonLAMP, 1), round(stepWidth_nonLAMP, 1), round(avgRate_nonLAMP, 1), np.round(maxDiff_nonLAMP, 1), LAMP_step]
+
+    return ans
 
 def curvesMetric(posCurves, negCurves, pcCurves, core_params, threshold_PC=DEFAULT_THRESHOLD, threshold_T=DEFAULT_THRESHOLD):
     """
@@ -113,11 +152,11 @@ def curvesMetric(posCurves, negCurves, pcCurves, core_params, threshold_PC=DEFAU
             sample_id = curve[0]
             ch = curve[1]
             signal = curve[-1]
-            steps, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(signal, startPt, rateTh, width_LB, avgRate_LB)
+            steps, diff, cp, stepWidth, avgRate, maxDiff, LAMP_step = labelSteps(signal, startPt, rateTh, width_LB, avgRate_LB)
             
             # Use appropriate threshold based on curve type
             threshold = threshold_PC if type == 'PC' else threshold_T
-            rlt = (diff >= threshold) 
+            rlt = (diff >= threshold) and LAMP_step
             
             # Store metrics for all curves
             curve_metrics = {
@@ -218,11 +257,11 @@ def curvesMetric_manul(posCurves, negCurves, pcCurves, core_params, threshold_PC
         trimmed_signal = trim_signal(signal, cutoff_time)
         
         # Apply detection algorithm with core parameters
-        steps, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(
+        steps, diff, cp, stepWidth, avgRate, maxDiff, LAMP_step = labelSteps(
             trimmed_signal, startPt, rateTh, width_LB, avgRate_LB)
         
         # PC is valid if diff >= threshold_PC
-        is_pc_valid = (diff >= threshold_PC)
+        is_pc_valid = (diff >= threshold_PC) and LAMP_step
         
         # Store PC result for this sample
         pc_results[sample_id] = is_pc_valid
@@ -257,11 +296,11 @@ def curvesMetric_manul(posCurves, negCurves, pcCurves, core_params, threshold_PC
             trimmed_signal = trim_signal(signal, cutoff_time)
             
             # Apply detection algorithm with target parameters
-            steps, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(
+            steps, diff, cp, stepWidth, avgRate, maxDiff, LAMP_step = labelSteps(
                 trimmed_signal, startPt, rateTh, width_LB, avgRate_LB)
             
             # Target is positive if diff >= threshold_T
-            is_positive = (diff >= threshold_T)
+            is_positive = (diff >= threshold_T) and LAMP_step
             
             # Initialize dictionary for this sample if not exists
             if sample_id not in pos_target_results:
@@ -300,11 +339,11 @@ def curvesMetric_manul(posCurves, negCurves, pcCurves, core_params, threshold_PC
         trimmed_signal = trim_signal(signal, cutoff_time)
         
         # Apply detection algorithm with target parameters
-        steps, diff, cp, stepWidth, avgRate, maxDiff = labelSteps(
+        steps, diff, cp, stepWidth, avgRate, maxDiff, LAMP_step = labelSteps(
             trimmed_signal, startPt, rateTh, width_LB, avgRate_LB)
         
         # Target should be negative (is_positive should be False)
-        is_positive = (diff >= threshold_T)
+        is_positive = (diff >= threshold_T) and LAMP_step
         
         # Initialize dictionary for this sample if not exists
         if sample_id not in neg_target_results:

@@ -119,22 +119,39 @@ def save_dual_threshold_results(pc_fdList, target_fdList, core_params, threshold
         threshold_T (float): Threshold for target detection
         output_file (str): Path to save the CSV file
     """
-    # Combine false detection lists
-    all_fdList = pc_fdList + target_fdList
+    # Create a unique key for each result based on Type, SampleID, and Channel
+    # to help identify and eliminate duplicates
+    unique_entries = {}
+    all_fdList = []
+    
+    # Process PC list first
+    for fd in pc_fdList or []:
+        if fd and len(fd) >= 3:
+            key = (fd[0], fd[1], fd[2])  # (Type, SampleID, Channel)
+            unique_entries[key] = fd
+    
+    # Process target list, only adding non-duplicates
+    for fd in target_fdList or []:
+        if fd and len(fd) >= 3:
+            key = (fd[0], fd[1], fd[2])  # (Type, SampleID, Channel)
+            unique_entries[key] = fd
+    
+    # Convert back to list
+    all_fdList = list(unique_entries.values())
     
     # Create a params list that includes the thresholds
     save_params = core_params.copy()
     save_params.append(f"{threshold_PC:.2f}(PC)/{threshold_T:.2f}(T)")  # Store both thresholds
     
     # Save the combined results
-    save_false_detection_list(all_fdList, output_file, save_params)
+    fd_df, all_curves_df = save_false_detection_list(all_fdList, output_file, save_params)
     
     # Log the results
-    ivCnt_PC = len([fd for fd in pc_fdList if fd[0] == 'IV'])
-    fpCnt = len([fd for fd in target_fdList if fd[0] == 'FP'])
-    fnLCnt = len([fd for fd in target_fdList if fd[0] == 'FNL'])
-    fnMCnt = len([fd for fd in target_fdList if fd[0] == 'FNM'])
-    fnHCnt = len([fd for fd in target_fdList if fd[0] == 'FNH'])
+    ivCnt_PC = len([fd for fd in all_fdList if fd[0] == 'IV'])
+    fpCnt = len([fd for fd in all_fdList if fd[0] == 'FP'])
+    fnLCnt = len([fd for fd in all_fdList if fd[0] == 'FNL'])
+    fnMCnt = len([fd for fd in all_fdList if fd[0] == 'FNM'])
+    fnHCnt = len([fd for fd in all_fdList if fd[0] == 'FNH'])
     
     logger.info(f"Saved combined false detection list to {output_file}")
     logger.info(f"PC Invalid Count: {ivCnt_PC}, Target FP+FN Count: {fpCnt+fnHCnt+fnMCnt+fnLCnt}")

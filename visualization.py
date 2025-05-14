@@ -129,7 +129,7 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
             line, = ax.plot(xSeries, signal, label=curve_label, color=color, linewidth=2)
             
             # Calculate metrics for this curve for annotation
-            steps, diff, cp, stepWidth, avgRate_val, maxDiff = labelSteps(signal, startPt, rate, 
+            steps, diff, cp, stepWidth, avgRate_val, maxDiff, LAMP_step = labelSteps(signal, startPt, rate, 
                                                                 width, avgRate)
             
             # Store metrics for CSV export
@@ -141,7 +141,8 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
                 'Cp': cp,
                 'StepWidth': stepWidth,
                 'AvgRate': avgRate_val,
-                'MaxDiff': maxDiff
+                'MaxDiff': maxDiff,
+                'LAMP_step': LAMP_step
             })
             
             # Store curve info for annotation
@@ -153,7 +154,8 @@ def plotFalseDetectionCurves(fdList, plotType, paras, save_path=None, show_annot
                     'cp': cp,
                     'stepWidth': stepWidth,
                     'avgRate': avgRate_val,
-                    'maxDiff': maxDiff
+                    'maxDiff': maxDiff,
+                    'LAMP_step': LAMP_step
                 },
                 'signal': signal,
                 'xSeries': xSeries

@@ -51,39 +51,47 @@ class OptimizationMonitor:
         self.fn_counts = []
         self.iteration_count = 0
         
-    def callback(self, xk, convergence=None):
+    def callback(self, xk, convergence=None, *args, **kwargs):
         """Callback function for optimization methods"""
-        # Different optimization methods have different callback signatures
-        self.iteration_count += 1
-        
-        # Calculate function value and FP/FN counts
-        func_val = scaled_objective(xk)
-        
-        # Track raw function values
-        self.iterations.append(self.iteration_count)
-        self.func_vals.append(func_val)
-        
-        # Get detailed FP/FN counts for this parameter set
-        unscaled_params = unscale_params(xk)
-        # Use only the core parameters and threshold
-        core_params = unscaled_params[:4]
-        threshold = unscaled_params[4]
-        
-        # Get metrics using curvesMetric
-        fpCnt, fnHCnt, fnMCnt, fnLCnt, _, _ = curvesMetric(posCurves, negCurves, [], core_params, threshold, threshold)
-        total_fn = fnHCnt + fnMCnt + fnLCnt
-        
-        # Store FP and FN counts
-        self.fp_counts.append(fpCnt)
-        self.fn_counts.append(total_fn)
-        
-        # Track best function value seen so far
-        if not self.best_func_vals:
-            self.best_func_vals.append(func_val)
-        else:
-            self.best_func_vals.append(min(func_val, self.best_func_vals[-1]))
-        
-        return False  # Continue optimization
+        try:
+            # Different optimization methods have different callback signatures
+            self.iteration_count += 1
+            
+            # Calculate function value and FP/FN counts
+            func_val = scaled_objective(xk)
+            
+            # Track raw function values
+            self.iterations.append(self.iteration_count)
+            self.func_vals.append(func_val)
+            
+            # Get detailed FP/FN counts for this parameter set
+            unscaled_params = unscale_params(xk)
+            # Use only the core parameters and threshold
+            core_params = unscaled_params[:4]
+            threshold = unscaled_params[4]
+            
+            # Get metrics using curvesMetric
+            fpCnt, fnHCnt, fnMCnt, fnLCnt, _, _ = curvesMetric(posCurves, negCurves, [], core_params, threshold, threshold)
+            total_fn = fnHCnt + fnMCnt + fnLCnt
+            
+            # Store FP and FN counts
+            self.fp_counts.append(fpCnt)
+            self.fn_counts.append(total_fn)
+            
+            # Track best function value seen so far
+            if not self.best_func_vals:
+                self.best_func_vals.append(func_val)
+            else:
+                self.best_func_vals.append(min(func_val, self.best_func_vals[-1]))
+                
+            # Log progress occasionally 
+            if self.iteration_count % 10 == 0:
+                logger.info(f"{self.method_name} progress: iteration {self.iteration_count}, score {func_val:.2f}")
+                
+            return False  # Continue optimization
+        except Exception as e:
+            logger.info(f"Error in callback for {self.method_name}: {str(e)}")
+            return False  # Continue optimization despite errors
 
 def plot_optimization_convergence(monitors, filename='optimization_convergence.png'):
     """Plot convergence data from optimization monitors"""
@@ -326,20 +334,41 @@ for bound_str in bounds_str:
     min_val, max_val = map(float, bound_str.split(','))
     bounds.append((min_val, max_val))
 
+# Verify that the parameter bounds are valid
+def verify_bounds(bounds):
+    """Check that all bounds are valid (min < max) and fix if needed"""
+    valid_bounds = []
+    for i, (min_val, max_val) in enumerate(bounds):
+        if min_val >= max_val:
+            logger.info(f"Warning: bound {i} has min >= max ({min_val} >= {max_val}), adjusting...")
+            # Ensure at least a small difference
+            max_val = min_val + 0.1
+        valid_bounds.append((min_val, max_val))
+    return valid_bounds
+
+# Validate and adjust parameter bounds if needed
+bounds = verify_bounds(bounds)
+logger.info(f"Using validated bounds: {bounds}")
+
 # Create scaled bounds (all 0 to 1) for the optimization
 scaled_bounds = [(0, 1) for _ in range(len(bounds))]
 
 # Create a scaled objective function
 def scaled_objective(scaled_params):
-    # Convert scaled parameters back to original scale
-    actual_params = [
-        scaled_params[0] * (bounds[0][1] - bounds[0][0]) + bounds[0][0],
-        scaled_params[1] * (bounds[1][1] - bounds[1][0]) + bounds[1][0],
-        scaled_params[2] * (bounds[2][1] - bounds[2][0]) + bounds[2][0],
-        scaled_params[3] * (bounds[3][1] - bounds[3][0]) + bounds[3][0],
-        scaled_params[4] * (bounds[4][1] - bounds[4][0]) + bounds[4][0]
-    ]
-    return objective_function_fp_fn(actual_params)
+    try:
+        # Convert scaled parameters back to original scale
+        actual_params = [
+            scaled_params[0] * (bounds[0][1] - bounds[0][0]) + bounds[0][0],
+            scaled_params[1] * (bounds[1][1] - bounds[1][0]) + bounds[1][0],
+            scaled_params[2] * (bounds[2][1] - bounds[2][0]) + bounds[2][0],
+            scaled_params[3] * (bounds[3][1] - bounds[3][0]) + bounds[3][0],
+            scaled_params[4] * (bounds[4][1] - bounds[4][0]) + bounds[4][0]
+        ]
+        return objective_function_fp_fn(actual_params)
+    except Exception as e:
+        logger.info(f"Error in scaled_objective: {str(e)}")
+        # Return a high cost for invalid parameters
+        return 1e10
 
 # Function to convert from original scale to scaled (0-1) parameters
 def scale_params(params):
@@ -386,8 +415,8 @@ initial_guesses_orig = [
 # Scale the initial guesses and ensure they're within bounds
 initial_guesses = [scale_params(ensure_within_bounds(guess, bounds)) for guess in initial_guesses_orig]
 
-# Define optimization methods to try
-methods = ['Nelder-Mead', 'Powell', 'L-BFGS-B', 'TNC', 'COBYLA', 'SLSQP']
+# Define optimization methods to try - remove COBYLA which is causing issues
+methods = ['Nelder-Mead', 'Powell', 'L-BFGS-B', 'TNC', 'SLSQP']
 
 # Track best result across all methods and initial guesses
 best_result = None
@@ -402,18 +431,20 @@ optimization_monitors = []
 def get_method_options(method):
     """Return appropriate options for each optimization method"""
     options = {}
+    
+    # For COBYLA, use proper options (maxiter is actually max function evals in COBYLA)
+    if method == 'COBYLA':
+        options['maxiter'] = 1000
+        options['rhobeg'] = 0.1
+        options['tol'] = 1e-4
+        return options
+        
+    # For other methods, add standard options
     if method in ['Nelder-Mead', 'Powell', 'CG', 'BFGS', 'L-BFGS-B', 'TNC', 'SLSQP', 'trust-constr']:
         options['maxiter'] = 1000
         
     if method in ['CG', 'BFGS', 'Newton-CG', 'L-BFGS-B', 'TNC', 'SLSQP', 'trust-constr', 'dogleg', 'trust-ncg']:
         options['disp'] = False
-    
-    # Remove unsupported options for COBYLA
-    if method == 'COBYLA':
-        # COBYLA doesn't support maxiter, but it does support maxfun
-        if 'maxiter' in options:
-            options.pop('maxiter')
-            options['maxfun'] = 1000
         
     return options
 
@@ -428,13 +459,27 @@ try:
     de_monitor = OptimizationMonitor("DE", "global")
     optimization_monitors.append(de_monitor)
     
+    # Create a specialized callback for DE
+    def de_callback(xk, convergence=None):
+        # DE passes both xk and convergence
+        de_monitor.callback(xk)
+        return False  # Continue optimization
+    
+    logger.info("Starting Differential Evolution optimization...")
     result = differential_evolution(
         scaled_objective, 
         scaled_bounds,
-        maxiter=100,
-        popsize=15,
-        tol=0.01,
-        callback=de_monitor.callback
+        maxiter=50,  # Reduced from 100 for faster completion
+        popsize=10,  # Reduced from 15 for faster completion
+        tol=0.05,    # Increased from 0.01 for faster convergence
+        strategy='best1bin',  # Use a more robust strategy
+        mutation=(0.5, 1.0),  # Use adaptive mutation
+        recombination=0.7,    # Standard recombination rate
+        callback=de_callback,
+        disp=True,            # Show progress
+        polish=False,         # Skip final polishing to avoid potential errors
+        updating='deferred',  # Use deferred updating for better convergence
+        workers=1             # Single-threaded for predictability
     )
     # Store result with unscaled parameters for later use
     result.x_unscaled = unscale_params(result.x)
@@ -446,23 +491,31 @@ try:
         best_method = "Differential Evolution"
         best_initial = "global"
 except Exception as e:
-    logger.debug(f"Differential Evolution failed: {str(e)}")
+    logger.info(f"Differential Evolution failed: {str(e)}")
+    logger.info(f"Error type: {type(e).__name__}")
 
 try:
     # Try dual annealing (another global optimizer)
     da_monitor = OptimizationMonitor("DA", "global")
     optimization_monitors.append(da_monitor)
     
-    # Define a custom callback function to ensure it works correctly with DA
+    # Create a specialized callback for DA that handles its specific signature
     def da_callback(x, f, context):
+        # DA passes x, f, and context
         da_monitor.callback(x)
         return False  # Continue optimization
     
+    logger.info("Starting Dual Annealing optimization...")
     result = dual_annealing(
         scaled_objective, 
         scaled_bounds,
-        maxiter=1000,
-        callback=da_callback
+        maxiter=500,        # Reduced from 1000 for faster completion
+        initial_temp=5000,  # Higher temperature for more exploration
+        restart_temp_ratio=2e-5,  # Higher restart ratio
+        visit=2.0,         # Visit factor
+        accept=-5.0,       # Accept factor  
+        callback=da_callback,
+        no_local_search=True  # Skip local minimization to avoid potential errors
     )
     # Store result with unscaled parameters for later use
     result.x_unscaled = unscale_params(result.x)
@@ -477,7 +530,8 @@ try:
     # Check if DA monitor collected data
     logger.info(f"DA monitor data: iterations={len(da_monitor.iterations)}, values={len(da_monitor.func_vals)}")
 except Exception as e:
-    logger.debug(f"Dual Annealing failed: {str(e)}")
+    logger.info(f"Dual Annealing failed: {str(e)}")
+    logger.info(f"Error type: {type(e).__name__}")
 
 # Then try local optimizers with multiple starting points
 for idx, init_guess in enumerate(initial_guesses):
@@ -491,6 +545,14 @@ for idx, init_guess in enumerate(initial_guesses):
             method_monitor = OptimizationMonitor(method, orig_guess)
             optimization_monitors.append(method_monitor)
             
+            # COBYLA needs a special callback without the convergence parameter
+            if method == 'COBYLA':
+                def cobyla_callback(x):
+                    return method_monitor.callback(x)
+                callback_fn = cobyla_callback
+            else:
+                callback_fn = method_monitor.callback
+            
             # Only pass options if they exist
             if options:
                 result = minimize(
@@ -498,7 +560,7 @@ for idx, init_guess in enumerate(initial_guesses):
                     init_guess,
                     method=method, 
                     bounds=scaled_bounds,
-                    callback=method_monitor.callback,
+                    callback=callback_fn,
                     options=options
                 )
             else:
@@ -507,7 +569,7 @@ for idx, init_guess in enumerate(initial_guesses):
                     init_guess,
                     method=method, 
                     bounds=scaled_bounds,
-                    callback=method_monitor.callback
+                    callback=callback_fn
                 )
             
             # Store result with unscaled parameters for later use
@@ -551,16 +613,19 @@ if all_results and len(all_results) > 0:
         if abs(edge_params[i] - bounds[i][0]) < 0.01 or abs(edge_params[i] - bounds[i][1]) < 0.01:
             logger.info(f"Parameter {i} ({['startPt', 'rateTh', 'width_LB', 'avgRate_LB', 'threshold'][i]}) is at bound {bounds[i]}")
 
-
-
 def log_false_detections(params, method_name, error_type="FP_FN"):
     """Log details of false detections for the given parameters"""
     # Extract core_params and threshold
     core_params = params[:4]
     threshold = params[4]
     
-    # Get all false detections - use the same threshold for both PC and target
-    _, _, _, _, _, fdList = curvesMetric(posCurves, negCurves, pcCurves, core_params, threshold, threshold)
+    # Get false detections - based on error type, decide whether to include PC curves
+    if error_type == "FP_FN":
+        # Don't include PC curves in FP/FN evaluation to avoid double-counting ch1
+        _, _, _, _, _, fdList = curvesMetric(posCurves, negCurves, [], core_params, threshold, threshold)
+    else:
+        # For PC evaluation or All, include PC curves
+        _, _, _, _, _, fdList = curvesMetric(posCurves, negCurves, pcCurves, core_params, threshold, threshold)
     
     # Filter based on error type
     if error_type == "FP_FN":
@@ -616,9 +681,9 @@ def objective_function_ivCnt(params):
     core_params = params[:4]
     threshold = params[4]
     
-    # Calculate metrics using curvesMetric function
-    # Use threshold for both PC and target threshold, but only PC curves are passed
-    _, _, _, _, ivCnt, _ = curvesMetric(posCurves, negCurves, pcCurves, core_params, threshold, threshold)
+    # Calculate metrics using curvesMetric function - only evaluate PC curves
+    # Pass empty structured lists for posCurves and negCurves to prevent counting them
+    _, _, _, _, ivCnt, _ = curvesMetric([[], [], []], [], pcCurves, core_params, threshold, threshold)
     
     # Return ivCnt as optimization objective
     return ivCnt
@@ -641,11 +706,12 @@ def evaluate_threshold_generic(args, optimization_type="PC"):
     full_params = [*core_params, threshold]
     
     if optimization_type == "PC":
-        # For PC validation, only count invalid PC curves
+        # For PC validation, only count invalid PC curves - pass properly structured empty lists for pos/neg curves
         _, _, _, _, ivCnt, _ = curvesMetric([[], [], []], [], pcCurves, core_params, threshold, threshold)
         return threshold, ivCnt
     else:  # FP_FN
         # For FP/FN, count false positives and false negatives with weighting
+        # Don't pass PC curves to avoid evaluating them
         fpCnt, fnHCnt, fnMCnt, fnLCnt, _, _ = curvesMetric(posCurves, negCurves, [], core_params, threshold, threshold)
         
         # Higher weight for FP to prioritize its reduction
@@ -769,8 +835,13 @@ best_threshold, best_score, best_fp, best_fn, fp_weight, fn_weight = best_result
 # Create final parameter set with optimized threshold
 optimized_fp_fn_params = [*base_params[:4], best_threshold]
 
-# Run one more evaluation to show detailed breakdown
-fpCnt, fnHCnt, fnMCnt, fnLCnt, ivCnt, _ = curvesMetric(posCurves, negCurves, pcCurves, optimized_fp_fn_params[:4], optimized_fp_fn_params[4], optimized_fp_fn_params[4])
+# Run one more evaluation to show detailed breakdown - separate PC and target evaluations
+# First evaluate FP/FN (targets only)
+fpCnt, fnHCnt, fnMCnt, fnLCnt, _, target_fdList = curvesMetric(posCurves, negCurves, [], optimized_fp_fn_params[:4], optimized_fp_fn_params[4], optimized_fp_fn_params[4])
+
+# Then evaluate PC validity separately - need to pass empty structure for posCurves
+_, _, _, _, ivCnt, _ = curvesMetric([[], [], []], [], pcCurves, optimized_fp_fn_params[:4], optimized_fp_fn_params[4], optimized_fp_fn_params[4])
+
 logger.info("===== Final FP/FN Optimized Results =====")
 logger.info(f"Parameters: startPt={optimized_fp_fn_params[0]:.2f}, rateTh={optimized_fp_fn_params[1]:.2f}, "
           f"width_LB={int(optimized_fp_fn_params[2])}, avgRate_LB={optimized_fp_fn_params[3]:.2f}, threshold={optimized_fp_fn_params[4]:.2f}")
@@ -905,13 +976,8 @@ if all_results and len(all_results) > 0 and global_best_base_params is not None:
     logger.info(f"  PC threshold (ch1): {threshold_PC:.2f}")
     logger.info(f"  Target threshold (ch2-5): {threshold_T:.2f}")
     
-    # Run metrics for both parameter sets with the new interface
-    # For PC validation - use PC threshold for both (PC only processing)
-    _, _, _, _, ivCnt_PC, pc_fdList = curvesMetric([[], [], []], [], pcCurves, core_params, threshold_PC, threshold_PC)
-    # For target detection - use target threshold for both (target only processing)
-    fpCnt, fnHCnt, fnMCnt, fnLCnt, _, target_fdList = curvesMetric(posCurves, negCurves, [], core_params, threshold_T, threshold_T)
-    
-    # Save results with the new helper function
-    all_fdList = save_dual_threshold_results(pc_fdList, target_fdList, core_params, threshold_PC, threshold_T, OUTPUT_FILE)
+    # Make sure to use the correct lists for PC and target results
+    # Use pc_fdList for PC validation results and fp_fn_fdList for target detection results
+    all_fdList = save_dual_threshold_results(pc_fdList, fp_fn_fdList, core_params, threshold_PC, threshold_T, OUTPUT_FILE)
 
 logger.info("Optimization completed successfully.")
