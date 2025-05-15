@@ -1,99 +1,143 @@
-# Detection Analysis Tool
+# ADF Parameter Optimization Tool
 
-This Python script analyzes PCR detection test results and categorizes them as Invalid, False Positive, or False Negative according to specific rules.
+## Project Overview
 
-## Requirements
+The ADF (Amplification Detection Framework) Parameter Optimization Tool is designed to automatically tune detection parameters for LAMP (Loop-mediated Isothermal Amplification) assays. The framework optimizes detection accuracy by minimizing false positive and false negative rates across a range of test samples.
 
-- Python 3.6+
-- pandas library
+This tool features:
+- **Automated parameter optimization** using multiple algorithms
+- **Dual threshold approach** for PC validation and target detection
+- **Robust statistical reporting** with precision, recall, F1 score, and accuracy
+- **Visualization** of detection curves and CQ/CP variation analysis
+- **Comprehensive output** with performance metrics and curve variation statistics
 
-To install the required dependencies:
+## Key Components
+
+### Core Detection Parameters
+
+The framework optimizes five critical parameters:
+
+| Parameter | Description | Typical Range |
+|-----------|-------------|---------------|
+| `startPt` | Starting point for analysis in cycles | 75-120 |
+| `rateTh` | Rate threshold for curve inflection | 0.5-9.0 |
+| `width_LB` | Minimum width for positive detection | 15-35 |
+| `avgRate_LB` | Average rate lower bound | 0.5-4.5 |
+| `threshold` | Fluorescence difference threshold | 15-200 |
+
+### Dual Threshold Approach
+
+The tool employs a dual threshold strategy to separately optimize:
+- **PC validation threshold** (channel 1)
+- **Target detection threshold** (channels 2-5)
+
+## Parameter Optimization Process
+
+The optimization process follows a systematic workflow:
+
+1. **Data Loading**: Test data is grouped into positive and negative tests
+2. **Baseline Analysis**: Initial statistics are calculated to establish baselines
+3. **Parameter Scaling**: Parameters are normalized for optimization stability
+4. **Global Optimization**: Differential Evolution and Dual Annealing algorithms perform broad parameter space exploration
+5. **Local Optimization**: Multiple local optimization methods refine parameters from promising starting points
+6. **Threshold Fine-tuning**: Separate threshold optimization for PC validation and target detection
+7. **Performance Validation**: Final parameters are evaluated on test data with comprehensive metrics
+
+## Scoring Criteria
+
+The optimization uses a weighted scoring system to balance false positives and negatives:
+
+```python
+weights = {
+    'fp': 2.0,  # False positives weighted higher
+    'fnH': 1.0, # False negative (High)
+    'fnM': 1.0, # False negative (Medium)
+    'fnL': 1.0, # False negative (Low)
+    'iv': 1.0   # Invalid PC curves
+}
+
+score = weights['fp'] * fpCnt + weights['fnH'] * fnHCnt + 
+        weights['fnM'] * fnMCnt + weights['fnL'] * fnLCnt
 ```
-pip install pandas
-```
+
+This weighting prioritizes reducing false positives while maintaining sensitivity.
+
+## Optimization Methods
+
+The tool employs multiple optimization strategies:
+
+### Global Optimization
+- **Differential Evolution**: Population-based evolutionary algorithm for global exploration
+- **Dual Annealing**: Combines simulated annealing with local search
+
+### Local Optimization
+- **Nelder-Mead**: Derivative-free simplex method
+- **Powell**: Direction set method for local searches
+- **L-BFGS-B**: Limited-memory BFGS with bound constraints
+- **TNC**: Truncated Newton method
+- **SLSQP**: Sequential Least Squares Programming
+
+Performance is enhanced through:
+- Parameter scaling for stability
+- Multiple starting points to avoid local minima
+- Caching of evaluation results for efficiency
+- Adaptive refinement for promising parameter regions
 
 ## Usage
 
-Basic usage:
-```
-python analyze_detection_results.py falseDetectionList.csv
-```
+To run the optimization tool:
 
-To save the analysis results to a CSV file:
-```
-python analyze_detection_results.py falseDetectionList.csv -o results.csv
+```bash
+python optimization.py
 ```
 
-To include detailed channel information in the output:
-```
-python analyze_detection_results.py falseDetectionList.csv -d
-```
+To run detection with optimized parameters:
 
-To save detailed results to CSV:
-```
-python analyze_detection_results.py falseDetectionList.csv -d -o detailed_results.csv
+```bash
+python main.py
 ```
 
-## Rules for Analysis
+## Output and Analysis
 
-The script analyzes the detection results according to these rules:
+The tool generates comprehensive outputs:
 
-1. **Invalid Test**: If positive control (PC) is invalid, count as invalid test.
-2. **False Positive**: If PC is valid and any channel for a sample ID shows a false positive curve, count this test as a false positive (each sample ID is counted only once).
-3. **False Negative**: If PC is valid and ALL FOUR channels (ch2, ch3, ch4, and ch5) are false negatives, count this test as a false negative. The test must have data for all four channels to be classified as a false negative.
+### Optimization Results
+- Parameter convergence plots
+- Ranked parameter sets with performance metrics
+- Parameter sensitivity analysis
 
-## Output
+### Performance Metrics
+- Confusion matrix (TP, TN, FP, FN)
+- Precision, recall, F1 score, and accuracy
+- Invalid PC curve counts
 
-The script generates a report showing:
-- Count and list of Invalid PC tests
-- Count and list of False Positive tests
-- Count and list of False Negative tests
-- Summary of total counts
+## For Developers
 
-With the `-d` or `--detailed` flag, the report includes:
-- Channel information for each test
-- Statistics on which channels most commonly show false positives
+### Code Structure
+- **`main.py`**: Primary detection functionality
+- **`optimization.py`**: Parameter optimization framework
+- **`config.py`**: Configuration and initialization
+- **`data_loader.py`**: Test data parsing
+- **`detection.py`**: Core detection algorithms
+- **`visualization.py`**: Plotting and visualization
+- **`export.py`**: Results export functionality
 
-When an output file is specified using `-o`, the results are saved to a CSV file with one row per test.
+### Extending the Framework
+To add new optimization algorithms:
+1. Implement the algorithm interface in `optimization.py`
+2. Add appropriate monitoring for convergence tracking
+3. Ensure results are compatible with the existing evaluation framework
 
-## Example
+To modify scoring criteria:
+1. Update the weight parameters in the objective function
+2. Consider the impact on parameter sensitivity
+3. Validate changes against known test datasets
 
-```
-Analysis Results for falseDetectionList.csv
-----------------------------------------
+### Performance Considerations
+- Use caching for repetitive evaluations
+- Consider parallel processing for large datasets
+- Monitor memory usage for large curve collections
 
-Invalid PC Tests: 2
-  - FCFD4
-  - 13.MB.40.S3
+## References
 
-False Positive Tests: 12
-  - 04.EN.189.S7
-  - 04.MB.45.S1
-  - 06.EN.206.S1.GL
-  - 06.GF.146.NTC
-  - 11.EN.204.S1.GL
-  - 11.EN.212.S1.GL
-  - 12.GF.186.NTC_CP
-  - 13.EN.193.S7
-  - 13.EN.207.S1.GL
-  - 16.EN.208.S1..GL
-  - 6.MB.46.S1
-  - FCFD_FCSRB1_GF
-
-False Negative Tests: 4
-  - 04.EN.24.S2
-  - 04.EN.214.S10
-  - 12.EN.82.S1
-  - 14.MB.106.S2
-
-Summary:
-  Invalid PC Tests: 2
-  False Positive Tests: 12
-  False Negative Tests: 4
-  Total: 18
-```
-
-# Test information input
-- Test samples related input should be fileed properly into the ###_testlog.csv file (Critical information: Used for, Input [C], test ID3)
-- Export .db file into single test CSVs and rename accordingly based on the "Test ID#" in ###_testlog.csv
-- Install 
+The ADF framework implements detection strategies based on established LAMP amplification curve analysis methods, with enhancements for robustness and accuracy across diverse testing conditions.
