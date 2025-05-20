@@ -15,7 +15,7 @@ from config import DATAPATH, TESTLOGFILE, OUTPUT_FILE, PlotFalse, SMOOTH_METHOD,
 from data_loader import testsGrouping, NTCMetric, POSMetric
 from detection import curvesMetric, curvesMetric_manul
 from visualization import plotFalseDetectionCurves
-from export import save_false_detection_list, save_dual_threshold_results
+from export import save_false_detection_list
 
 def main():
     """Main entry point for the ADF detection algorithm."""
@@ -40,11 +40,11 @@ def main():
     logger.info(f"PC curve count: {len(pcCurves)}")
     
     # Define parameters
-    op_rateTh = 0.67
+    op_rateTh = 0.81
     op_width_LB = 15
-    op_avgRate_LB = 1.62
-    op_threshold_PC = 90
-    op_threshold_T = 100
+    op_avgRate_LB = 1.61
+    op_threshold_PC = 54.92
+    op_threshold_T = 97.53
     
     # Core parameters common to both PC and target
     core_params = [75, op_rateTh, op_width_LB, op_avgRate_LB]
@@ -73,38 +73,6 @@ def main():
         core_params, op_threshold_PC, op_threshold_T, 
         CUTOFF_TIME
     )
-    
-    # Calculate and print metrics
-    precision = round(tp_count / (tp_count + fp_count), 2) if (tp_count + fp_count) > 0 else 0
-    recall = round(tp_count / (tp_count + fn_count), 2) if (tp_count + fn_count) > 0 else 0
-    f1_score = round(2 * precision * recall / (precision + recall), 2) if (precision + recall) > 0 else 0
-    accuracy = round((tp_count + tn_count) / (tp_count + tn_count + fp_count + fn_count), 2) if (tp_count + tn_count + fp_count + fn_count) > 0 else 0
-    
-    # Display metrics to console
-    print("\nTest-level Performance Results:")
-    print(f"Parameters: startPt={core_params[0]}, rateTh={core_params[1]:.2f}, width_LB={core_params[2]}, avgRate_LB={core_params[3]:.2f}")
-    print(f"PC threshold: {op_threshold_PC}, Target threshold: {op_threshold_T}")
-    
-    # Print confusion matrix as a table
-    print("\nConfusion Matrix:")
-    print("=" * 54)
-    print(f"| {'':<16} | {'Actual Positive':<12} | {'Actual Negative':<12} |")
-    print(f"|{'-' * 18}|{'-' * 14}|{'-' * 14}|")
-    print(f"| {'Predicted Pos':<16} | {tp_count:<12} | {fp_count:<12} |")
-    print(f"| {'Predicted Neg':<16} | {fn_count:<12} | {tn_count:<12} |")
-    print("=" * 54)
-    
-    # Print metrics table
-    print("\nPerformance Metrics:")
-    print("=" * 32)
-    print(f"| {'Metric':<12} | {'Value':<10} |")
-    print(f"|{'-' * 14}|{'-' * 12}|")
-    print(f"| {'Precision':<12} | {precision:<10.2f} |")
-    print(f"| {'Recall':<12} | {recall:<10.2f} |")
-    print(f"| {'F1 Score':<12} | {f1_score:<10.2f} |")
-    print(f"| {'Accuracy':<12} | {accuracy:<10.2f} |")
-    print(f"| {'Invalid':<12} | {iv_count:<10} |")
-    print("=" * 32)
     
     # Generate plots if requested
     if PlotFalse:

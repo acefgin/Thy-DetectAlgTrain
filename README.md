@@ -8,7 +8,6 @@ This tool features:
 - **Automated parameter optimization** using multiple algorithms
 - **Dual threshold approach** for PC validation and target detection
 - **Robust statistical reporting** with precision, recall, F1 score, and accuracy
-- **Visualization** of detection curves and CQ/CP variation analysis
 - **Comprehensive output** with performance metrics and curve variation statistics
 
 ## Key Components

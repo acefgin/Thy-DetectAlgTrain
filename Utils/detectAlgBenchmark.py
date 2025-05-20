@@ -1458,24 +1458,24 @@ def curvesMetric_manul(posCurves, negCurves, pcCurves, core_params, threshold_PC
     
     # Print confusion matrix as a table
     logger.info("Confusion Matrix:")
-    logger.info(f"{'=' * 54}")
-    logger.info(f"| {'':<16} | {'Actual Positive':<12} | {'Actual Negative':<12} |")
-    logger.info(f"|{'-' * 18}|{'-' * 14}|{'-' * 14}|")
-    logger.info(f"| {'Predicted Pos':<16} | {tp_count:<12} | {fp_count:<12} |")
-    logger.info(f"| {'Predicted Neg':<16} | {fn_count:<12} | {tn_count:<12} |")
-    logger.info(f"{'=' * 54}")
+    logger.info(f"{'=' * 80}")
+    logger.info(f"| {'':<20} | {'Actual Positive':<15} | {'Actual Negative':<15} |")
+    logger.info(f"|{'-' * 22}|{'-' * 17}|{'-' * 17}|")
+    logger.info(f"| {'Predicted Pos':<20} | {tp_count:<15} | {fp_count:<15} |")
+    logger.info(f"| {'Predicted Neg':<20} | {fn_count:<15} | {tn_count:<15} |")
+    logger.info(f"{'=' * 80}")
     
     # Print metrics table
     logger.info("Performance Metrics:") 
-    logger.info(f"{'=' * 32}")
-    logger.info(f"| {'Metric':<12} | {'Value':<10} |")
-    logger.info(f"|{'-' * 14}|{'-' * 12}|")
-    logger.info(f"| {'Precision':<12} | {precision:<10.2f} |")
-    logger.info(f"| {'Recall':<12} | {recall:<10.2f} |")
-    logger.info(f"| {'F1 Score':<12} | {f1_score:<10.2f} |")
-    logger.info(f"| {'Accuracy':<12} | {accuracy:<10.2f} |")
-    logger.info(f"| {'Invalid':<12} | {iv_count:<10} |")
-    logger.info(f"{'=' * 32}")
+    logger.info(f"{'=' * 40}")
+    logger.info(f"| {'Metric':<15} | {'Value':<15} |")
+    logger.info(f"|{'-' * 17}|{'-' * 17}|")
+    logger.info(f"| {'Precision':<15} | {precision:<15.2f} |")
+    logger.info(f"| {'Recall':<15} | {recall:<15.2f} |")
+    logger.info(f"| {'F1 Score':<15} | {f1_score:<15.2f} |")
+    logger.info(f"| {'Accuracy':<15} | {accuracy:<15.2f} |")
+    logger.info(f"| {'Invalid':<15} | {iv_count:<15} |")
+    logger.info(f"{'=' * 40}")
     
     return tp_count, tn_count, fp_count, fn_count, iv_count, all_results
 

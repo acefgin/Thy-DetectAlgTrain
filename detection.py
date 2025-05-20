@@ -462,32 +462,41 @@ def curvesMetric_manul(posCurves, negCurves, pcCurves, core_params, threshold_PC
     
     # Print results for debugging
     logger.info(f'Test-level results: TP={tp_count}, TN={tn_count}, FP={fp_count}, FN={fn_count}, IV={iv_count}')
-    # Print the confusion matrix in precision, recall, F1 score, and accuracy
-    precision = round(tp_count / (tp_count + fp_count), 2) if (tp_count + fp_count) > 0 else 0
-    recall = round(tp_count / (tp_count + fn_count), 2) if (tp_count + fn_count) > 0 else 0
-    f1_score = round(2 * precision * recall / (precision + recall), 2) if (precision + recall) > 0 else 0
+    
+    # Calculate metrics for positive class
+    precision_pos = round(tp_count / (tp_count + fp_count), 2) if (tp_count + fp_count) > 0 else 0
+    recall_pos = round(tp_count / (tp_count + fn_count), 2) if (tp_count + fn_count) > 0 else 0
+    f1_score_pos = round(2 * precision_pos * recall_pos / (precision_pos + recall_pos), 2) if (precision_pos + recall_pos) > 0 else 0
     accuracy = round((tp_count + tn_count) / (tp_count + tn_count + fp_count + fn_count), 2) if (tp_count + tn_count + fp_count + fn_count) > 0 else 0
-    logger.info(f'Precision: {precision}, Recall: {recall}, F1 score: {f1_score}, Accuracy: {accuracy}')
+    
+    # Calculate metrics for negative class
+    precision_neg = round(tn_count / (tn_count + fn_count), 2) if (tn_count + fn_count) > 0 else 0
+    recall_neg = round(tn_count / (tn_count + fp_count), 2) if (tn_count + fp_count) > 0 else 0
+    f1_score_neg = round(2 * precision_neg * recall_neg / (precision_neg + recall_neg), 2) if (precision_neg + recall_neg) > 0 else 0
+
     
     # Print confusion matrix as a table
     logger.info("Confusion Matrix:")
-    logger.info(f"{'=' * 54}")
-    logger.info(f"| {'':<16} | {'Actual Positive':<12} | {'Actual Negative':<12} |")
-    logger.info(f"|{'-' * 18}|{'-' * 14}|{'-' * 14}|")
-    logger.info(f"| {'Predicted Pos':<16} | {tp_count:<12} | {fp_count:<12} |")
-    logger.info(f"| {'Predicted Neg':<16} | {fn_count:<12} | {tn_count:<12} |")
-    logger.info(f"{'=' * 54}")
+    logger.info(f"{'=' * 60}")
+    logger.info(f"| {'':<20} | {'Actual Positive':<15} | {'Actual Negative':<15} |")
+    logger.info(f"|{'-' * 22}|{'-' * 17}|{'-' * 17}|")
+    logger.info(f"| {'Predicted Pos':<20} | {tp_count:<15} | {fp_count:<15} |")
+    logger.info(f"| {'Predicted Neg':<20} | {fn_count:<15} | {tn_count:<15} |")
+    logger.info(f"{'=' * 60}")
     
-    # Print metrics table
+    # Print metrics table with separate positive and negative metrics
     logger.info("Performance Metrics:") 
-    logger.info(f"{'=' * 32}")
-    logger.info(f"| {'Metric':<12} | {'Value':<10} |")
-    logger.info(f"|{'-' * 14}|{'-' * 12}|")
-    logger.info(f"| {'Precision':<12} | {precision:<10.2f} |")
-    logger.info(f"| {'Recall':<12} | {recall:<10.2f} |")
-    logger.info(f"| {'F1 Score':<12} | {f1_score:<10.2f} |")
-    logger.info(f"| {'Accuracy':<12} | {accuracy:<10.2f} |")
-    logger.info(f"| {'Invalid':<12} | {iv_count:<10} |")
-    logger.info(f"{'=' * 32}")
+    logger.info(f"{'=' * 40}")
+    logger.info(f"| {'Metric':<15} | {'Value':<15} |")
+    logger.info(f"|{'-' * 17}|{'-' * 17}|")
+    logger.info(f"| {'Precision-Pos':<15} | {precision_pos:<15.2f} |")
+    logger.info(f"| {'Recall-Pos':<15} | {recall_pos:<15.2f} |")
+    logger.info(f"| {'F1 Score-Pos':<15} | {f1_score_pos:<15.2f} |")
+    logger.info(f"| {'Precision-Neg':<15} | {precision_neg:<15.2f} |")
+    logger.info(f"| {'Recall-Neg':<15} | {recall_neg:<15.2f} |")
+    logger.info(f"| {'F1 Score-Neg':<15} | {f1_score_neg:<15.2f} |")
+    logger.info(f"| {'Accuracy':<15} | {accuracy:<15.2f} |")
+    logger.info(f"| {'Invalid':<15} | {iv_count:<15} |")
+    logger.info(f"{'=' * 40}")
     
     return tp_count, tn_count, fp_count, fn_count, iv_count, all_results 
